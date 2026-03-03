@@ -1,0 +1,39 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths: ['src/**/*.java']
+
+jobs:
+  review:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Get Java diff
+        shell: bash
+        run: git diff origin/main...HEAD -- '*.java' | head -c 3000 > diff.txt
+      - name: Claude Review
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          DIFF=$(cat diff.txt)
+          curl -s https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d "{\"model\": \"claude-haiku-4-5-20251001\", \"max_tokens\": 1024, \"messages\": [{\"role\": \"user\", \"content\": \"Review this Java diff and provide feedback:\n\n$DIFF\"}]}" \
+            | jq -r '.content[0].text' > review.txt
+      - name: Post Review Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const review = require('fs').readFileSync('review.txt','utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner, repo: context.repo.repo,
+              repo: context.repo.repo,
+              body: `## 🤖 Claude Code Review\n\n${review}`
+            });
