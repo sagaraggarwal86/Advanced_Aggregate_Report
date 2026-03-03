@@ -27,6 +27,7 @@ jobs:
         run: |
           if ! command -v jq &> /dev/null; then
             choco install jq -y
+            echo "C:\ProgramData\chocolatey\bin" >> $GITHUB_PATH
           fi
       - name: Claude Review
         if: env.NO_CHANGES != 'true'
@@ -38,17 +39,27 @@ jobs:
             echo "Error: ANTHROPIC_API_KEY is not set"
             exit 1
           fi
-          DIFF=$(cat diff.txt)
-          if [ -z "$DIFF" ]; then
+          if [ ! -f diff.txt ] || [ ! -s diff.txt ]; then
             echo "No diff content to review"
             exit 0
           fi
-          DIFF_ESCAPED=$(echo "$DIFF" | jq -Rs .)
+          PAYLOAD=$(jq -n \
+            --arg model "claude-sonnet-4-20250514" \
+            --argjson max_tokens 2048 \
+            --arg diff "$(cat diff.txt)" \
+            '{
+              model: $model,
+              max_tokens: $max_tokens,
+              messages: [{
+                role: "user",
+                content: ("Review this Java/Maven diff for code quality, bugs, and best practices:\n\n" + $diff)
+              }]
+            }')
           RESPONSE=$(curl -s -w "\n%{http_code}" https://api.anthropic.com/v1/messages \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
             -H "anthropic-version: 2023-06-01" \
             -H "content-type: application/json" \
-            -d "{\"model\": \"claude-sonnet-4-20250514\", \"max_tokens\": 2048, \"messages\": [{\"role\": \"user\", \"content\": \"Review this Java/Maven diff for code quality, bugs, and best practices:\n\n$DIFF_ESCAPED\"}]}")
+            -d "$PAYLOAD")
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | sed '$d')
           if [ "$HTTP_CODE" != "200" ]; then
