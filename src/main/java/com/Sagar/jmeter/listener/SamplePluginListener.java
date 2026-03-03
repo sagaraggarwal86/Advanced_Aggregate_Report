@@ -1,4 +1,4 @@
-package com.Sagar.jmeter.listener;
+package com.sagar.jmeter.listener;
 
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;

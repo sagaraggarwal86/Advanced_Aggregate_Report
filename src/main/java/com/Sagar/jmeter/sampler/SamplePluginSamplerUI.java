@@ -1,6 +1,6 @@
-package com.Sagar.jmeter.sampler;
+package com.sagar.jmeter.sampler;
 
-import com.Sagar.jmeter.data.AggregateResult;
+import com.sagar.jmeter.data.AggregateResult;
 import org.apache.jmeter.samplers.gui.AbstractSamplerGui;
 import org.apache.jmeter.testelement.TestElement;
 

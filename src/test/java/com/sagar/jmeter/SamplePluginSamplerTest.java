@@ -1,6 +1,6 @@
 package com.sagar.jmeter;
 
-import com.Sagar.jmeter.sampler.SamplePluginSampler;
+import com.sagar.jmeter.sampler.SamplePluginSampler;
 import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,7 +1,7 @@
-package com.Sagar.jmeter.parser;
+package com.sagar.jmeter.parser;
 
-import com.Sagar.jmeter.data.AggregateResult;
-import com.Sagar.jmeter.data.JTLRecord;
+import com.sagar.jmeter.data.AggregateResult;
+import com.sagar.jmeter.data.JTLRecord;
 
 import java.io.BufferedReader;
 import java.io.FileReader;

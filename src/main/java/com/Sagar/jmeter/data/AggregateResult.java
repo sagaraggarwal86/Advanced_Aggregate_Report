@@ -1,4 +1,4 @@
-package com.Sagar.jmeter.data;
+package com.sagar.jmeter.data;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -83,9 +83,6 @@ public class AggregateResult {
         if (count == 0 || times.isEmpty()) return 0;
 
         // Calculate throughput as requests per second
-        long firstTimestamp = 0;
-        long lastTimestamp = 0;
-
         // We'll approximate based on total samples and average time
         // For more accurate calculation, we'd need actual timestamps
         double totalSeconds = totalTime / 1000.0;

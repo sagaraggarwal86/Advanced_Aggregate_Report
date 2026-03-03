@@ -1,7 +1,7 @@
 package com.sagar.jmeter;
 
-import com.Sagar.jmeter.data.AggregateResult;
-import com.Sagar.jmeter.parser.JTLParser;
+import com.sagar.jmeter.data.AggregateResult;
+import com.sagar.jmeter.parser.JTLParser;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
