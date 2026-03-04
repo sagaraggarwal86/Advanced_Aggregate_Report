@@ -1,7 +1,7 @@
 package com.personal.jmeter.parser;
 
-import com.personal.jmeter.data.AggregateResult;
-import com.personal.jmeter.data.JTLRecord;
+import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.visualizers.SamplingStatCalculator;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -11,43 +11,31 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Parses JTL files and generates aggregate statistics
+ * Parses JTL (CSV) files and generates aggregate statistics using
+ * {@link SamplingStatCalculator} — the same engine as JMeter's Aggregate Report.
+ *
+ * <p>Supports filtering by time offset and label patterns.</p>
  */
 public class JTLParser {
 
+    private static final String TOTAL_LABEL = "TOTAL";
+
     /**
-     * Parse JTL file and return aggregated results by label
+     * Parse JTL file and return aggregated results by label.
+     *
+     * @param filePath path to the JTL CSV file
+     * @param options  filter and display options
+     * @return ordered map of label → calculator (TOTAL row last)
+     * @throws IOException if the file cannot be read
      */
-    public Map<String, AggregateResult> parse(String filePath, FilterOptions options) throws IOException {
-        Map<String, AggregateResult> results = new LinkedHashMap<>();
+    public Map<String, SamplingStatCalculator> parse(String filePath, FilterOptions options) throws IOException {
+        Map<String, SamplingStatCalculator> results = new LinkedHashMap<>();
+        SamplingStatCalculator totalCalc = new SamplingStatCalculator(TOTAL_LABEL);
 
-        // First pass: find the minimum timestamp if offsets are used
+        // First pass: find min timestamp (for offset filtering) and collect all labels
+        //             (to identify sub-results like "HTTP Request-0", "HTTP Request-1")
         long minTimestamp = Long.MAX_VALUE;
-        if (options.startOffset > 0 || options.endOffset > 0) {
-            try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-                String headerLine = reader.readLine();
-                if (headerLine == null) {
-                    throw new IOException("Empty JTL file");
-                }
-
-                String[] headers = headerLine.split(",");
-                Map<String, Integer> columnMap = buildColumnMap(headers);
-
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    JTLRecord record = parseLine(line, columnMap);
-                    if (record != null) {
-                        long timestamp = record.getTimeStamp();
-                        if (timestamp > 0 && timestamp < minTimestamp) {
-                            minTimestamp = timestamp;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Store minTimestamp in options for use in shouldInclude
-        options.minTimestamp = (minTimestamp == Long.MAX_VALUE) ? 0 : minTimestamp;
+        java.util.Set<String> allLabels = new java.util.HashSet<>();
 
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
             String headerLine = reader.readLine();
@@ -55,28 +43,102 @@ public class JTLParser {
                 throw new IOException("Empty JTL file");
             }
 
-            String[] headers = headerLine.split(",");
-            Map<String, Integer> columnMap = buildColumnMap(headers);
+            Map<String, Integer> columnMap = buildColumnMap(headerLine.split(","));
+            Integer tsIndex = columnMap.get("timeStamp");
+            Integer labelIndex = columnMap.get("label");
 
             String line;
             while ((line = reader.readLine()) != null) {
-                JTLRecord record = parseLine(line, columnMap);
-                if (record != null && shouldInclude(record, options)) {
-                    String label = record.getLabel();
-                    AggregateResult result = results.computeIfAbsent(label, k -> {
-                        AggregateResult r = new AggregateResult();
-                        r.setLabel(label);
-                        return r;
-                    });
-                    result.addSample(record);
+                try {
+                    String[] values = splitCsvLine(line);
+                    // Collect label
+                    if (labelIndex != null && labelIndex < values.length) {
+                        allLabels.add(values[labelIndex].trim());
+                    }
+                    // Track min timestamp for offset filtering
+                    if ((options.startOffset > 0 || options.endOffset > 0)
+                            && tsIndex != null && tsIndex < values.length) {
+                        long ts = Long.parseLong(values[tsIndex].trim());
+                        if (ts > 0 && ts < minTimestamp) {
+                            minTimestamp = ts;
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    // skip malformed lines
+                }
+            }
+        }
+        options.minTimestamp = (minTimestamp == Long.MAX_VALUE) ? 0 : minTimestamp;
+
+        // Build set of sub-result labels to skip.
+        // JMeter names sub-results as "ParentLabel-0", "ParentLabel-1", etc.
+        // A label is a sub-result if it matches "X-N" and "X" also exists as a label.
+        java.util.Set<String> subResultLabels = new java.util.HashSet<>();
+        for (String label : allLabels) {
+            int lastDash = label.lastIndexOf('-');
+            if (lastDash > 0 && lastDash < label.length() - 1) {
+                String suffix = label.substring(lastDash + 1);
+                String parentCandidate = label.substring(0, lastDash);
+                if (isNumeric(suffix) && allLabels.contains(parentCandidate)) {
+                    subResultLabels.add(label);
                 }
             }
         }
 
-        // Note: TOTAL row aggregation removed - can be calculated client-side if needed
+        // Second pass: parse, filter, and aggregate (skipping sub-results)
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+            String headerLine = reader.readLine();
+            if (headerLine == null) {
+                throw new IOException("Empty JTL file");
+            }
+
+            Map<String, Integer> columnMap = buildColumnMap(headerLine.split(","));
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                try {
+                    SampleResult sr = parseLine(line, columnMap);
+                    if (sr != null
+                            && !subResultLabels.contains(sr.getSampleLabel())
+                            && shouldInclude(sr, columnMap, line, options)) {
+                        String label = sr.getSampleLabel();
+
+                        SamplingStatCalculator calc = results.computeIfAbsent(label,
+                                SamplingStatCalculator::new);
+                        synchronized (calc) {
+                            calc.addSample(sr);
+                        }
+                        synchronized (totalCalc) {
+                            totalCalc.addSample(sr);
+                        }
+                    }
+                } catch (Exception e) {
+                    // Skip malformed lines
+                }
+            }
+        }
+
+        // Add TOTAL row last (matches Aggregate Report display order)
+        if (!results.isEmpty()) {
+            results.put(TOTAL_LABEL, totalCalc);
+        }
 
         return results;
     }
+
+    /**
+     * Check if a string is a non-negative integer (used for sub-result suffix detection).
+     */
+    private boolean isNumeric(String str) {
+        for (int i = 0; i < str.length(); i++) {
+            if (!Character.isDigit(str.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // CSV parsing
+    // ─────────────────────────────────────────────────────────────
 
     private Map<String, Integer> buildColumnMap(String[] headers) {
         Map<String, Integer> map = new HashMap<>();
@@ -86,38 +148,76 @@ public class JTLParser {
         return map;
     }
 
-    private JTLRecord parseLine(String line, Map<String, Integer> columnMap) {
-        String[] values = line.split(",", -1);
-        JTLRecord record = new JTLRecord();
+    /**
+     * Parse one CSV line directly into a {@link SampleResult}.
+     * No intermediate JTLRecord needed.
+     */
+    private SampleResult parseLine(String line, Map<String, Integer> columnMap) {
+        if (line == null || line.isBlank()) {
+            return null;
+        }
+
+        String[] values = splitCsvLine(line);
+        SampleResult sr = new SampleResult();
 
         try {
-            record.setTimeStamp(getLong(values, columnMap, "timeStamp", 0));
-            record.setElapsed(getLong(values, columnMap, "elapsed", 0));
-            record.setLabel(getString(values, columnMap, "label", ""));
-            record.setResponseCode(getString(values, columnMap, "responseCode", ""));
-            record.setResponseMessage(getString(values, columnMap, "responseMessage", ""));
-            record.setThreadName(getString(values, columnMap, "threadName", ""));
-            record.setDataType(getString(values, columnMap, "dataType", ""));
-            record.setSuccess(getBoolean(values, columnMap, "success", true));
-            record.setFailureMessage(getString(values, columnMap, "failureMessage", ""));
-            record.setBytes(getLong(values, columnMap, "bytes", 0));
-            record.setSentBytes(getLong(values, columnMap, "sentBytes", 0));
-            record.setGrpThreads(getInt(values, columnMap, "grpThreads", 0));
-            record.setAllThreads(getInt(values, columnMap, "allThreads", 0));
-            record.setUrl(getString(values, columnMap, "URL", ""));
-            record.setLatency(getLong(values, columnMap, "Latency", 0));
-            record.setIdleTime(getLong(values, columnMap, "IdleTime", 0));
-            record.setConnect(getLong(values, columnMap, "Connect", 0));
+            sr.setTimeStamp(getLong(values, columnMap, "timeStamp", 0));
 
-            return record;
+            long elapsed = getLong(values, columnMap, "elapsed", 0);
+            sr.setStampAndTime(sr.getTimeStamp(), elapsed);
+
+            sr.setSampleLabel(getString(values, columnMap, "label", "unknown"));
+            sr.setResponseCode(getString(values, columnMap, "responseCode", ""));
+            sr.setResponseMessage(getString(values, columnMap, "responseMessage", ""));
+            sr.setThreadName(getString(values, columnMap, "threadName", ""));
+            sr.setDataType(getString(values, columnMap, "dataType", ""));
+            sr.setSuccessful("true".equalsIgnoreCase(
+                    getString(values, columnMap, "success", "true")));
+
+            sr.setBytes((int) getLong(values, columnMap, "bytes", 0));
+            sr.setSentBytes(getLong(values, columnMap, "sentBytes", 0));
+            sr.setLatency(getLong(values, columnMap, "Latency", 0));
+            sr.setIdleTime(getLong(values, columnMap, "IdleTime", 0));
+            sr.setConnectTime(getLong(values, columnMap, "Connect", 0));
+
+            return sr;
         } catch (Exception e) {
             return null; // Skip malformed lines
         }
     }
 
-    private boolean shouldInclude(JTLRecord record, FilterOptions options) {
-        // Apply label filters
-        String label = record.getLabel();
+    /**
+     * Split a CSV line respecting quoted fields.
+     * Handles cases like responseMessage containing commas.
+     */
+    private String[] splitCsvLine(String line) {
+        java.util.List<String> fields = new java.util.ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                fields.add(current.toString().trim());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        fields.add(current.toString().trim());
+
+        return fields.toArray(new String[0]);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Filtering
+    // ─────────────────────────────────────────────────────────────
+
+    private boolean shouldInclude(SampleResult sr, Map<String, Integer> columnMap,
+                                  String rawLine, FilterOptions options) {
+        String label = sr.getSampleLabel();
 
         // Check if label should be included
         if (options.includeLabels != null && !options.includeLabels.isEmpty()) {
@@ -147,20 +247,12 @@ public class JTLParser {
 
         // Apply timestamp filters (offset in seconds relative to test start)
         if (options.startOffset > 0 || options.endOffset > 0) {
-            long timestampMs = record.getTimeStamp();
+            long timestampMs = sr.getTimeStamp();
+            long relativeTimeSec = (timestampMs - options.minTimestamp) / 1000L;
 
-            // Calculate relative time from the start of the test (in milliseconds)
-            long relativeTimeMs = timestampMs - options.minTimestamp;
-            long relativeTimeSec = relativeTimeMs / 1000L;
-
-            // If start offset is set, filter out records before the start time
-            if (options.startOffset > 0) {
-                if (relativeTimeSec < options.startOffset) {
-                    return false;
-                }
+            if (options.startOffset > 0 && relativeTimeSec < options.startOffset) {
+                return false;
             }
-
-            // If end offset is set, filter out records after the end time
             if (options.endOffset > 0 && relativeTimeSec > options.endOffset) {
                 return false;
             }
@@ -169,18 +261,23 @@ public class JTLParser {
         return true;
     }
 
-    private String getString(String[] values, Map<String, Integer> map, String column, String defaultValue) {
+    // ─────────────────────────────────────────────────────────────
+    // Field extraction helpers
+    // ─────────────────────────────────────────────────────────────
+
+    private String getString(String[] values, Map<String, Integer> map,
+                             String column, String defaultValue) {
         Integer index = map.get(column);
         if (index == null || index >= values.length) return defaultValue;
         String value = values[index].trim();
-        // Remove quotes if present
         if (value.startsWith("\"") && value.endsWith("\"")) {
             value = value.substring(1, value.length() - 1);
         }
         return value;
     }
 
-    private long getLong(String[] values, Map<String, Integer> map, String column, long defaultValue) {
+    private long getLong(String[] values, Map<String, Integer> map,
+                         String column, long defaultValue) {
         String str = getString(values, map, column, "");
         if (str.isEmpty()) return defaultValue;
         try {
@@ -190,22 +287,9 @@ public class JTLParser {
         }
     }
 
-    private int getInt(String[] values, Map<String, Integer> map, String column, int defaultValue) {
-        String str = getString(values, map, column, "");
-        if (str.isEmpty()) return defaultValue;
-        try {
-            return Integer.parseInt(str);
-        } catch (NumberFormatException e) {
-            return defaultValue;
-        }
-    }
-
-    private boolean getBoolean(String[] values, Map<String, Integer> map, String column, boolean defaultValue) {
-        String str = getString(values, map, column, "");
-        if (str.isEmpty()) return defaultValue;
-        return "true".equalsIgnoreCase(str);
-    }
-
+    /**
+     * Filter and display options for JTL parsing.
+     */
     public static class FilterOptions {
         public String includeLabels = "";
         public String excludeLabels = "";
@@ -213,6 +297,6 @@ public class JTLParser {
         public int startOffset = 0;
         public int endOffset = 0;
         public int percentile = 90;
-        public long minTimestamp = 0;  // Internal field to track test start time
+        public long minTimestamp = 0;  // Internal: tracks test start time
     }
 }

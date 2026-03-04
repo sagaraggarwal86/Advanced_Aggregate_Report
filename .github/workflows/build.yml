@@ -20,5 +20,5 @@ jobs:
       - run: mvn test
       - uses: actions/upload-artifact@v4
         with:
-          name: jmeter-plugin-jar
-          path: target/jmeter-sample-plugin-*.jar
+          name: jmeter-plugin-Config-Aggregate-Report
+          path: target/jmeter-plugin-Config-Aggregate-Report-*.jar
