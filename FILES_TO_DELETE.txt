@@ -1,0 +1,94 @@
+# Files to Delete from Project
+
+## Reason: These files are no longer needed after converting from Sampler to Listener architecture
+
+### Main Source Files (Unused Sampler):
+1. src/main/java/com/personal/jmeter/sampler/SamplePluginSampler.java
+   - Reason: Converted to Listener architecture, sampler no longer used
+
+### Test Files (Tests for removed sampler):
+2. src/test/java/com/personal/jmeter/SamplePluginSamplerTest.java
+   - Reason: Tests for removed sampler class
+
+### Old Service Registration Files:
+3. src/main/resources/META-INF/services/com.personal.jmeter.sampler.SamplePluginSamplerUI
+   - Reason: Incorrect service file (old format)
+
+4. src/main/resources/META-INF/services/com.personal.jmeter.sampler.SamplePluginSamplerUI.old
+   - Reason: Backup of incorrect service file
+
+### Example Data Files:
+5. src/main/java/example.jtl
+   - Reason: Sample data file, not needed in production
+
+### Modified Run Configuration:
+6. .idea/runConfigurations/UI_Preview.xml (keep if needed for testing)
+   - Status: MODIFIED - contains updates, review if needed
+
+## Current Service Registration (KEEP):
+✓ src/main/resources/META-INF/services/org.apache.jmeter.gui.JMeterGUIComponent
+  - This is the CORRECT service file for JMeter plugin discovery
+
+## Commands to Delete Files:
+
+### Windows (PowerShell):
+```powershell
+cd F:\Projects\Advanced_Aggregate_Report
+Remove-Item "src\main\java\com\personal\jmeter\sampler\SamplePluginSampler.java"
+Remove-Item "src\test\java\com\personal\jmeter\SamplePluginSamplerTest.java"
+Remove-Item "src\main\resources\META-INF\services\com.personal.jmeter.sampler.SamplePluginSamplerUI"
+Remove-Item "src\main\resources\META-INF\services\com.personal.jmeter.sampler.SamplePluginSamplerUI.old"
+Remove-Item "src\main\java\example.jtl"
+```
+
+### Unix/Mac/Linux:
+```bash
+cd /F/Projects/Advanced_Aggregate_Report
+rm src/main/java/com/personal/jmeter/sampler/SamplePluginSampler.java
+rm src/test/java/com/personal/jmeter/SamplePluginSamplerTest.java
+rm src/main/resources/META-INF/services/com.personal.jmeter.sampler.SamplePluginSamplerUI
+rm src/main/resources/META-INF/services/com.personal.jmeter.sampler.SamplePluginSamplerUI.old
+rm src/main/java/example.jtl
+```
+
+### Git (to stage deletions):
+```bash
+git rm src/main/java/com/personal/jmeter/sampler/SamplePluginSampler.java
+git rm src/test/java/com/personal/jmeter/SamplePluginSamplerTest.java
+git rm src/main/resources/META-INF/services/com.personal.jmeter.sampler.SamplePluginSamplerUI
+git rm src/main/resources/META-INF/services/com.personal.jmeter.sampler.SamplePluginSamplerUI.old
+git rm src/main/java/example.jtl
+```
+
+## After Deletion:
+1. Rebuild the project: `mvn clean package -DskipTests`
+2. Verify no compilation errors
+3. Test the plugin in JMeter to ensure it still works correctly
+
+## Current Project Structure (After Cleanup):
+
+src/
+├── main/
+│   ├── java/
+│   │   └── com/personal/jmeter/
+│   │       ├── data/
+│   │       │   ├── AggregateResult.java ✓
+│   │       │   └── JTLRecord.java ✓
+│   │       ├── listener/
+│   │       │   └── SamplePluginListener.java ✓
+│   │       ├── parser/
+│   │       │   └── JTLParser.java ✓
+│   │       └── sampler/
+│   │           └── SamplePluginSamplerUI.java ✓ (Listener UI)
+│   └── resources/
+│       └── META-INF/services/
+│           └── org.apache.jmeter.gui.JMeterGUIComponent ✓
+└── test/
+    └── java/
+        └── com/personal/jmeter/
+            ├── JTLParserOffsetTest.java ✓
+            ├── ThroughputCalculationTest.java ✓
+            └── UIPreview.java ✓
+
+Note: The "sampler" package name is misleading now since SamplePluginSamplerUI is actually a Listener UI.
+Consider renaming the package from "sampler" to "visualizer" or "gui" in a future refactoring.

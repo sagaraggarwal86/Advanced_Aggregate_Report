@@ -1,9 +1,13 @@
-package com.Sagar.jmeter.sampler;
+package com.personal.jmeter.sampler;
 
-import com.Sagar.jmeter.data.AggregateResult;
-import com.Sagar.jmeter.parser.JTLParser;
-import org.apache.jmeter.samplers.gui.AbstractSamplerGui;
+import com.personal.jmeter.data.AggregateResult;
+import com.personal.jmeter.listener.SamplePluginListener;
+import com.personal.jmeter.parser.JTLParser;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -14,21 +18,17 @@ import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.Map;
 
-public class SamplePluginSamplerUI extends AbstractSamplerGui {
+public class SamplePluginSamplerUI extends AbstractVisualizer {
+
+    private static final Logger log = LoggerFactory.getLogger(SamplePluginSamplerUI.class);
 
     // Fonts
     private static final Font FONT_HEADER = new Font("Calibri", Font.PLAIN, 13);
     private static final Font FONT_REGULAR = new Font("Calibri", Font.PLAIN, 11);
 
-    // File section
-    private final JTextField fileNameField = new JTextField("", 40);
-
     // Filter settings
     private final JTextField startOffsetField = new JTextField("", 10);
     private final JTextField endOffsetField = new JTextField("", 10);
-    private final JTextField includeLabelsField = new JTextField("", 20);
-    private final JTextField excludeLabelsField = new JTextField("", 20);
-    private final JCheckBox regExpBox = new JCheckBox();
     private final JTextField percentileField = new JTextField("90", 10);
 
     // Results table
@@ -52,6 +52,10 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
 
     // Track the last loaded file path for reloading with new filters
     private String lastLoadedFilePath = null;
+
+    // Throttle UI updates - update every N samples or time period
+    private volatile long lastUpdateTime = 0;
+    private static final long UPDATE_INTERVAL_MS = 500; // Update UI every 500ms max
 
     public SamplePluginSamplerUI() {
         super();
@@ -78,7 +82,7 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
             }
         });
 
-        // Setup listeners for offset and filter fields to reload data when changed
+        // Setup listeners for offset fields to reload data when changed
         javax.swing.event.DocumentListener filterListener = new javax.swing.event.DocumentListener() {
             public void changedUpdate(javax.swing.event.DocumentEvent e) {
                 reloadWithCurrentFilters();
@@ -94,11 +98,6 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
         };
         startOffsetField.getDocument().addDocumentListener(filterListener);
         endOffsetField.getDocument().addDocumentListener(filterListener);
-        includeLabelsField.getDocument().addDocumentListener(filterListener);
-        excludeLabelsField.getDocument().addDocumentListener(filterListener);
-
-        // Setup listener for regex checkbox
-        regExpBox.addActionListener(e -> reloadWithCurrentFilters());
     }
 
     private void updatePercentileColumn() {
@@ -151,64 +150,17 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
     }
 
     private void initComponents() {
-        setLayout(new BorderLayout(5, 5));
-        setBorder(makeBorder());
+        setLayout(new BorderLayout());
 
-        // Stack title + file panel + filter panel vertically at the top
-        JPanel topWrapper = new JPanel(new BorderLayout(0, 0));
-        JPanel titleAndFile = new JPanel(new BorderLayout(0, 0));
-        titleAndFile.add(makeTitlePanel(), BorderLayout.NORTH);
-        titleAndFile.add(buildFilePanel(), BorderLayout.CENTER);
-        topWrapper.add(titleAndFile, BorderLayout.NORTH);
-        topWrapper.add(buildFilterPanel(), BorderLayout.CENTER);
+        // Create main panel with filter and results
+        JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        mainPanel.add(buildFilterPanel(), BorderLayout.NORTH);
+        mainPanel.add(buildTablePanel(), BorderLayout.CENTER);
+        mainPanel.add(buildBottomPanel(), BorderLayout.SOUTH);
 
-        add(topWrapper, BorderLayout.NORTH);
-        add(buildTablePanel(), BorderLayout.CENTER);
-        add(buildBottomPanel(), BorderLayout.SOUTH);
-    }
-
-    // ── File / Read panel ────────────────────────────────────────────────────
-    private JPanel buildFilePanel() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        TitledBorder fileBorder = new TitledBorder("Write results to file / Read from file");
-        fileBorder.setTitleFont(FONT_HEADER);
-        panel.setBorder(fileBorder);
-        GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(4, 4, 4, 4);
-        c.anchor = GridBagConstraints.WEST;
-
-        // "Filename" label
-        c.gridx = 0;
-        c.gridy = 0;
-        c.fill = GridBagConstraints.NONE;
-        c.weightx = 0;
-        JLabel fileLabel = new JLabel("Filename");
-        fileLabel.setFont(FONT_REGULAR);
-        panel.add(fileLabel, c);
-
-        // filename text field
-        c.gridx = 1;
-        c.fill = GridBagConstraints.HORIZONTAL;
-        c.weightx = 1.0;
-        fileNameField.setFont(FONT_REGULAR);
-        panel.add(fileNameField, c);
-
-        // Browse button
-        JButton browseBtn = new JButton("Browse...");
-        browseBtn.setFont(FONT_REGULAR);
-        browseBtn.addActionListener(e -> {
-            JFileChooser fc = new JFileChooser();
-            if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                File f = fc.getSelectedFile();
-                fileNameField.setText(f.getAbsolutePath());
-            }
-        });
-        c.gridx = 2;
-        c.fill = GridBagConstraints.NONE;
-        c.weightx = 0;
-        panel.add(browseBtn, c);
-
-        return panel;
+        // Add to center (AbstractVisualizer adds file panel at top automatically)
+        add(mainPanel, BorderLayout.CENTER);
     }
 
     // ── Filter settings panel ────────────────────────────────────────────────
@@ -224,32 +176,17 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
         // Header row
         c.gridy = 0;
         c.gridx = 0;
-        c.weightx = 0.15;
+        c.weightx = 0.33;
         JLabel startLabel = new JLabel("Start offset (sec)");
         startLabel.setFont(FONT_REGULAR);
         panel.add(startLabel, c);
         c.gridx = 1;
-        c.weightx = 0.15;
+        c.weightx = 0.33;
         JLabel endLabel = new JLabel("End offset (sec)");
         endLabel.setFont(FONT_REGULAR);
         panel.add(endLabel, c);
         c.gridx = 2;
-        c.weightx = 0.25;
-        JLabel includeLabel = new JLabel("Include labels");
-        includeLabel.setFont(FONT_REGULAR);
-        panel.add(includeLabel, c);
-        c.gridx = 3;
-        c.weightx = 0.25;
-        JLabel excludeLabel = new JLabel("Exclude labels");
-        excludeLabel.setFont(FONT_REGULAR);
-        panel.add(excludeLabel, c);
-        c.gridx = 4;
-        c.weightx = 0.05;
-        JLabel regExpLabel = new JLabel("RegExp");
-        regExpLabel.setFont(FONT_REGULAR);
-        panel.add(regExpLabel, c);
-        c.gridx = 5;
-        c.weightx = 0.15;
+        c.weightx = 0.34;
         JLabel percentileLabel = new JLabel("Percentile (%)");
         percentileLabel.setFont(FONT_REGULAR);
         panel.add(percentileLabel, c);
@@ -264,17 +201,6 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
         endOffsetField.setFont(FONT_REGULAR);
         panel.add(endOffsetField, c);
         c.gridx = 2;
-        includeLabelsField.setFont(FONT_REGULAR);
-        panel.add(includeLabelsField, c);
-        c.gridx = 3;
-        excludeLabelsField.setFont(FONT_REGULAR);
-        panel.add(excludeLabelsField, c);
-        c.gridx = 4;
-        c.fill = GridBagConstraints.NONE;
-        regExpBox.setFont(FONT_REGULAR);
-        panel.add(regExpBox, c);
-        c.gridx = 5;
-        c.fill = GridBagConstraints.HORIZONTAL;
         percentileField.setFont(FONT_REGULAR);
         panel.add(percentileField, c);
 
@@ -319,68 +245,97 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
 
     @Override
     public TestElement createTestElement() {
-        SamplePluginSampler s = new SamplePluginSampler();
-        modifyTestElement(s);
-        return s;
+        SamplePluginListener listener = new SamplePluginListener();
+        listener.setListener(this);
+        modifyTestElement(listener);
+        return listener;
     }
 
     @Override
     public void modifyTestElement(TestElement el) {
-        configureTestElement(el);
-        if (el instanceof SamplePluginSampler s) {
-            s.setFileName(fileNameField.getText().trim());
-            s.setFilterSettings(buildFilterString());
-            s.setStart(startOffsetField.getText().trim());
-            s.setDuration(endOffsetField.getText().trim());
+        super.modifyTestElement(el);
+        if (el instanceof SamplePluginListener listener) {
+            listener.setListener(this);
+            listener.setProperty("filterSettings", buildFilterString());
+            listener.setProperty("startOffset", startOffsetField.getText().trim());
+            listener.setProperty("endOffset", endOffsetField.getText().trim());
         }
     }
 
     @Override
     public void configure(TestElement el) {
         super.configure(el);
-        if (el instanceof SamplePluginSampler s) {
-            fileNameField.setText(s.getFileName());
-            startOffsetField.setText(s.getStart());
-            endOffsetField.setText(s.getDuration());
+        if (el instanceof SamplePluginListener listener) {
+            listener.setListener(this);
+            startOffsetField.setText(listener.getPropertyAsString("startOffset"));
+            endOffsetField.setText(listener.getPropertyAsString("endOffset"));
         }
     }
 
     @Override
     public void clearGui() {
         super.clearGui();
-        fileNameField.setText("");
         startOffsetField.setText("");
         endOffsetField.setText("");
-        includeLabelsField.setText("");
-        excludeLabelsField.setText("");
         percentileField.setText("90");
-        regExpBox.setSelected(false);
         tableModel.setRowCount(0);
         cachedResults.clear();
+    }
+
+    @Override
+    public void add(SampleResult sample) {
+        // Throttle UI updates to avoid overwhelming the Swing thread
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastUpdateTime >= UPDATE_INTERVAL_MS) {
+            lastUpdateTime = currentTime;
+
+            // Get the listener model to retrieve aggregated results
+            TestElement model = getModel();
+            if (model instanceof SamplePluginListener listener) {
+                // Update cached results from listener
+                cachedResults = listener.getAggregatedResults();
+
+                // Refresh the table display on Swing thread (without blocking)
+                if (!SwingUtilities.isEventDispatchThread()) {
+                    SwingUtilities.invokeLater(this::updateDisplay);
+                } else {
+                    updateDisplay();
+                }
+            }
+        }
+    }
+
+    @Override
+    public void clearData() {
+        // Clear the table and cached results
+        tableModel.setRowCount(0);
+        cachedResults.clear();
+
+        // Clear data in the listener model
+        TestElement model = getModel();
+        if (model instanceof SamplePluginListener listener) {
+            listener.clearData();
+        }
+    }
+
+    /**
+     * Update the display with current aggregated results
+     */
+    private void updateDisplay() {
+        try {
+            int percentile = Integer.parseInt(percentileField.getText().trim());
+            populateTableWithResults(cachedResults, percentile);
+        } catch (NumberFormatException e) {
+            populateTableWithResults(cachedResults, 90);
+        }
     }
 
     private String buildFilterString() {
         return "start=" + startOffsetField.getText().trim()
                 + ";end=" + endOffsetField.getText().trim()
-                + ";include=" + includeLabelsField.getText().trim()
-                + ";exclude=" + excludeLabelsField.getText().trim()
-                + ";regExp=" + regExpBox.isSelected()
                 + ";percentile=" + percentileField.getText().trim();
     }
 
-    /**
-     * Public method to cache loaded results and populate table.
-     * Called when a JTL file has been parsed and loaded.
-     */
-    public void setAndDisplayResults(Map<String, AggregateResult> results) {
-        this.cachedResults = new HashMap<>(results);
-        try {
-            int percentile = Integer.parseInt(percentileField.getText().trim());
-            populateTableWithResults(results, percentile);
-        } catch (NumberFormatException e) {
-            populateTableWithResults(results, 90);
-        }
-    }
 
     /**
      * Load JTL file with all filter options (start offset, end offset, include/exclude labels, percentile)
@@ -406,7 +361,7 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
 
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Error loading JTL file: {}", filePath, e);
             return false;
         }
     }
@@ -433,7 +388,7 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
 
         } catch (Exception e) {
             // Silently fail - user is typing and may have invalid input
-            System.err.println("Error reloading with filters: " + e.getMessage());
+            log.debug("Error reloading with filters: {}", e.getMessage());
         }
     }
 
@@ -442,10 +397,6 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
      */
     private JTLParser.FilterOptions buildFilterOptions() {
         JTLParser.FilterOptions options = new JTLParser.FilterOptions();
-
-        options.includeLabels = includeLabelsField.getText().trim();
-        options.excludeLabels = excludeLabelsField.getText().trim();
-        options.regExp = regExpBox.isSelected();
 
         // Parse start offset (in seconds)
         try {
@@ -518,7 +469,7 @@ public class SamplePluginSamplerUI extends AbstractSamplerGui {
                         "Table data saved successfully to:\n" + fileToSave.getAbsolutePath(),
                         "Success", JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception e) {
-                e.printStackTrace();
+                log.error("Error saving table data to file: {}", fileToSave.getAbsolutePath(), e);
                 JOptionPane.showMessageDialog(this,
                         "Error saving file:\n" + e.getMessage(),
                         "Error", JOptionPane.ERROR_MESSAGE);

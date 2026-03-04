@@ -1,7 +1,7 @@
-package com.sagar.jmeter;
+package com.personal.jmeter;
 
-import com.Sagar.jmeter.data.AggregateResult;
-import com.Sagar.jmeter.data.JTLRecord;
+import com.personal.jmeter.data.AggregateResult;
+import com.personal.jmeter.data.JTLRecord;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

@@ -1,7 +1,7 @@
-package com.Sagar.jmeter.parser;
+package com.personal.jmeter.parser;
 
-import com.Sagar.jmeter.data.AggregateResult;
-import com.Sagar.jmeter.data.JTLRecord;
+import com.personal.jmeter.data.AggregateResult;
+import com.personal.jmeter.data.JTLRecord;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -73,17 +73,7 @@ public class JTLParser {
             }
         }
 
-        // Add TOTAL row
-        if (!results.isEmpty()) {
-            AggregateResult total = new AggregateResult();
-            total.setLabel("TOTAL");
-            for (AggregateResult r : results.values()) {
-                // Aggregate the aggregates by re-processing
-                for (int i = 0; i < r.getCount(); i++) {
-                    // This is a simplification - ideally we'd keep all raw records
-                }
-            }
-        }
+        // Note: TOTAL row aggregation removed - can be calculated client-side if needed
 
         return results;
     }
@@ -171,10 +161,8 @@ public class JTLParser {
             }
 
             // If end offset is set, filter out records after the end time
-            if (options.endOffset > 0) {
-                if (relativeTimeSec > options.endOffset) {
-                    return false;
-                }
+            if (options.endOffset > 0 && relativeTimeSec > options.endOffset) {
+                return false;
             }
         }
 

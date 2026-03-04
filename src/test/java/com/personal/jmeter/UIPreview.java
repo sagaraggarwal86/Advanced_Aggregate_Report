@@ -1,7 +1,7 @@
-package com.sagar.jmeter;
+package com.personal.jmeter;
 
-import com.Sagar.jmeter.data.AggregateResult;
-import com.Sagar.jmeter.parser.JTLParser;
+import com.personal.jmeter.data.AggregateResult;
+import com.personal.jmeter.parser.JTLParser;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -28,9 +28,6 @@ public class UIPreview {
     // Filter settings
     private final JTextField startOffsetField = new JTextField("", 10);
     private final JTextField endOffsetField = new JTextField("", 10);
-    private final JTextField includeLabelsField = new JTextField("", 20);
-    private final JTextField excludeLabelsField = new JTextField("", 20);
-    private final JCheckBox regExpBox = new JCheckBox();
     private final JTextField percentileField = new JTextField("90", 10);
 
     // Results table
@@ -111,11 +108,6 @@ public class UIPreview {
         };
         startOffsetField.getDocument().addDocumentListener(offsetListener);
         endOffsetField.getDocument().addDocumentListener(offsetListener);
-        includeLabelsField.getDocument().addDocumentListener(offsetListener);
-        excludeLabelsField.getDocument().addDocumentListener(offsetListener);
-
-        // Setup listener for regex checkbox
-        regExpBox.addActionListener(e -> reloadWithCurrentFilters());
 
         // ── Title bar ──────────────────────────────────────────────────────
         JPanel titleBar = new JPanel(new BorderLayout());
@@ -197,32 +189,17 @@ public class UIPreview {
         // Header labels
         fc2.gridy = 0;
         fc2.gridx = 0;
-        fc2.weightx = 0.15;
+        fc2.weightx = 0.33;
         JLabel startLabel = new JLabel("Start offset (sec)");
         startLabel.setFont(FONT_REGULAR);
         filterPanel.add(startLabel, fc2);
         fc2.gridx = 1;
-        fc2.weightx = 0.15;
+        fc2.weightx = 0.33;
         JLabel endLabel = new JLabel("End offset (sec)");
         endLabel.setFont(FONT_REGULAR);
         filterPanel.add(endLabel, fc2);
         fc2.gridx = 2;
-        fc2.weightx = 0.25;
-        JLabel includeLabel = new JLabel("Include labels");
-        includeLabel.setFont(FONT_REGULAR);
-        filterPanel.add(includeLabel, fc2);
-        fc2.gridx = 3;
-        fc2.weightx = 0.25;
-        JLabel excludeLabel = new JLabel("Exclude labels");
-        excludeLabel.setFont(FONT_REGULAR);
-        filterPanel.add(excludeLabel, fc2);
-        fc2.gridx = 4;
-        fc2.weightx = 0.05;
-        JLabel regExpLabel = new JLabel("RegExp");
-        regExpLabel.setFont(FONT_REGULAR);
-        filterPanel.add(regExpLabel, fc2);
-        fc2.gridx = 5;
-        fc2.weightx = 0.15;
+        fc2.weightx = 0.34;
         JLabel percentileLabel = new JLabel("Percentile (%)");
         percentileLabel.setFont(FONT_REGULAR);
         filterPanel.add(percentileLabel, fc2);
@@ -237,17 +214,6 @@ public class UIPreview {
         endOffsetField.setFont(FONT_REGULAR);
         filterPanel.add(endOffsetField, fc2);
         fc2.gridx = 2;
-        includeLabelsField.setFont(FONT_REGULAR);
-        filterPanel.add(includeLabelsField, fc2);
-        fc2.gridx = 3;
-        excludeLabelsField.setFont(FONT_REGULAR);
-        filterPanel.add(excludeLabelsField, fc2);
-        fc2.gridx = 4;
-        fc2.fill = GridBagConstraints.NONE;
-        regExpBox.setFont(FONT_REGULAR);
-        filterPanel.add(regExpBox, fc2);
-        fc2.gridx = 5;
-        fc2.fill = GridBagConstraints.HORIZONTAL;
         percentileField.setFont(FONT_REGULAR);
         filterPanel.add(percentileField, fc2);
 
@@ -361,7 +327,7 @@ public class UIPreview {
                         "Success", JOptionPane.INFORMATION_MESSAGE);
 
             } catch (Exception e) {
-                e.printStackTrace();
+                System.err.println("Error: " + e.getMessage());
                 JOptionPane.showMessageDialog(null,
                         "Error loading JTL file:\n" + e.getMessage(),
                         "Error", JOptionPane.ERROR_MESSAGE);
@@ -406,10 +372,6 @@ public class UIPreview {
      */
     private JTLParser.FilterOptions buildFilterOptions() {
         JTLParser.FilterOptions options = new JTLParser.FilterOptions();
-
-        options.includeLabels = includeLabelsField.getText().trim();
-        options.excludeLabels = excludeLabelsField.getText().trim();
-        options.regExp = regExpBox.isSelected();
 
         // Parse start offset (in seconds)
         try {
@@ -482,7 +444,7 @@ public class UIPreview {
                         "Table data saved successfully to:\n" + fileToSave.getAbsolutePath(),
                         "Success", JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception e) {
-                e.printStackTrace();
+                System.err.println("Error: " + e.getMessage());
                 JOptionPane.showMessageDialog(null,
                         "Error saving file:\n" + e.getMessage(),
                         "Error", JOptionPane.ERROR_MESSAGE);

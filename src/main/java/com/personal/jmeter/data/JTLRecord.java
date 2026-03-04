@@ -1,4 +1,4 @@
-package com.Sagar.jmeter.data;
+package com.personal.jmeter.data;
 
 /**
  * Represents a single row from a JTL file

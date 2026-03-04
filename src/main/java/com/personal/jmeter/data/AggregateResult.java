@@ -1,4 +1,6 @@
-package com.Sagar.jmeter.data;
+package com.personal.jmeter.data;
+
+import org.apache.jmeter.samplers.SampleResult;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,6 +47,34 @@ public class AggregateResult {
         }
 
         totalBytes += record.getBytes();
+    }
+
+    /**
+     * Add a sample from JMeter's SampleResult (for live test execution)
+     */
+    public synchronized void addSampleResult(SampleResult result) {
+        count++;
+        long elapsed = result.getTime();
+        long timestamp = result.getTimeStamp();
+
+        totalTime += elapsed;
+        times.add(elapsed);
+
+        if (elapsed < minTime) minTime = elapsed;
+        if (elapsed > maxTime) maxTime = elapsed;
+
+        // Track timestamp range for throughput calculation
+        if (timestamp < minTimestamp) minTimestamp = timestamp;
+        if (timestamp > maxTimestamp) {
+            maxTimestamp = timestamp;
+            maxElapsedAtMaxTimestamp = elapsed;
+        }
+
+        if (!result.isSuccessful()) {
+            errorCount++;
+        }
+
+        totalBytes += result.getBytesAsLong();
     }
 
     public String getLabel() {

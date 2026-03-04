@@ -1,7 +1,7 @@
-package com.sagar.jmeter;
+package com.personal.jmeter;
 
-import com.Sagar.jmeter.data.AggregateResult;
-import com.Sagar.jmeter.parser.JTLParser;
+import com.personal.jmeter.data.AggregateResult;
+import com.personal.jmeter.parser.JTLParser;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -17,7 +17,7 @@ class JTLParserOffsetTest {
     @Test
     void testOffsetFiltering() throws Exception {
         // Path to the example JTL file
-        String jtlPath = "src/main/java/example.jtl";
+        String jtlPath = "src/main/Java/Example.jtl";
         File jtlFile = new File(jtlPath);
         assertTrue(jtlFile.exists(), "JTL file should exist");
 
