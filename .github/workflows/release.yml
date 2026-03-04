@@ -17,7 +17,7 @@ jobs:
       - run: mvn clean package -DskipTests
       - uses: softprops/action-gh-release@v1
         with:
-          files: target/jmeter-sample-plugin-*.jar
+          files: target/jmeter-plugin-Config-Aggregate-Report-*.jar
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
