@@ -26,7 +26,7 @@
 1. Build the JAR (see [Building from Source](#️-building-from-source)) or download from Releases
 2. Copy it to your JMeter `lib/ext/` directory:
    ```
-   <JMETER_HOME>/lib/ext/Configurable_Aggregate_Report-1.0.0.jar
+   <JMETER_HOME>/lib/ext/Configurable_Aggregate_Report-1.1.0.jar
    ```
 3. Restart JMeter
 
@@ -40,9 +40,9 @@
 2. Click **Browse** → select a `.jtl` file → metrics populate immediately
 
 3. Adjust filters:
-    - **Start Offset** — skip the first N seconds (ramp-up exclusion)
-    - **End Offset** — skip everything after N seconds (ramp-down exclusion)
-    - **Percentile** — change from default 90th to any value
+   - **Start Offset** — skip the first N seconds (ramp-up exclusion)
+   - **End Offset** — skip everything after N seconds (ramp-down exclusion)
+   - **Percentile** — change from default 90th to any value
 
 ---
 
@@ -181,12 +181,12 @@ cd Configurable_Aggregate_Report
 mvn clean package
 ```
 
-The JAR is built to `target/Configurable_Aggregate_Report-1.0.0.jar`.
+The JAR is built to `target/Configurable_Aggregate_Report-1.1.0.jar`.
 
 **Deploy to JMeter:**
 
 ```bash
-cp target/Configurable_Aggregate_Report-1.0.0.jar $JMETER_HOME/lib/ext/
+cp target/Configurable_Aggregate_Report-1.1.0.jar $JMETER_HOME/lib/ext/
 ```
 
 **Run standalone preview (no JMeter needed):**
