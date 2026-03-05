@@ -12,11 +12,8 @@ import java.awt.*;
 import java.io.File;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Standalone preview of the Configurable Aggregate Report UI.
@@ -28,47 +25,55 @@ import java.util.Map;
 public class UIPreview {
 
     // ── Fonts ────────────────────────────────────────────────────
-    private static final Font FONT_HEADER  = new Font("Calibri", Font.PLAIN, 13);
+    private static final Font FONT_HEADER = new Font("Calibri", Font.PLAIN, 13);
     private static final Font FONT_REGULAR = new Font("Calibri", Font.PLAIN, 11);
-
+    private static final int PERCENTILE_COL_INDEX = 7;
+    /**
+     * Label used for the totals row — always pinned at bottom.
+     */
+    private static final String TOTAL_LABEL = "TOTAL";
+    private static final SimpleDateFormat TIME_FORMAT =
+            new SimpleDateFormat("MM/dd/yy HH:mm:ss");
     // ── File section ─────────────────────────────────────────────
     private final JTextField fileNameField = new JTextField("", 40);
-
     // ── Filter settings ──────────────────────────────────────────
     private final JTextField startOffsetField = new JTextField("", 10);
-    private final JTextField endOffsetField   = new JTextField("", 10);
-    private final JTextField percentileField  = new JTextField("90", 10);
-
+    private final JTextField endOffsetField = new JTextField("", 10);
+    private final JTextField percentileField = new JTextField("90", 10);
     // ── Results table ────────────────────────────────────────────
+    // FIX 2: renamed "90th Percentile" → "90th Percentile(ms)"
     private final String[] COLUMN_NAMES = {
             "Transaction Name", "Transaction Count", "Transaction Passed",
             "Transaction Failed", "Avg Response Time(ms)", "Min Response Time(ms)",
-            "Max Response Time(ms)", "90th Percentile", "Std. Dev.", "Error Rate", "TPS"
+            "Max Response Time(ms)", "90th Percentile(ms)", "Std. Dev.", "Error Rate", "TPS"
     };
-    private static final int PERCENTILE_COL_INDEX = 7;
     private final DefaultTableModel tableModel = new DefaultTableModel(COLUMN_NAMES, 0) {
         @Override
-        public boolean isCellEditable(int r, int c) { return false; }
+        public boolean isCellEditable(int r, int c) {
+            return false;
+        }
     };
     private final JTable resultsTable = new JTable(tableModel);
-
     // ── Column visibility ────────────────────────────────────────
     private final JCheckBoxMenuItem[] columnMenuItems = new JCheckBoxMenuItem[COLUMN_NAMES.length];
     private final TableColumn[] allTableColumns = new TableColumn[COLUMN_NAMES.length];
-
     // ── Bottom controls ──────────────────────────────────────────
     private final JCheckBox saveTableHeaderBox = new JCheckBox("Save Table Header");
-
+    // ── Time info fields (read-only) ─────────────────────────────
+    private final JTextField startTimeField = new JTextField("", 20);
+    private final JTextField endTimeField = new JTextField("", 20);
+    private final JTextField durationField = new JTextField("", 20);
     // ── State ────────────────────────────────────────────────────
     private Map<String, SamplingStatCalculator> cachedResults = new HashMap<>();
     private String lastLoadedFilePath = null;
-
-    // ── Time info fields (read-only) ─────────────────────────────
-    private final JTextField startTimeField  = new JTextField("", 20);
-    private final JTextField endTimeField    = new JTextField("", 20);
-    private final JTextField durationField   = new JTextField("", 20);
-    private static final SimpleDateFormat TIME_FORMAT =
-            new SimpleDateFormat("MM/dd/yy HH:mm:ss");
+    /**
+     * Current sort column index (-1 = no sort).
+     */
+    private int sortColumn = -1;
+    /**
+     * True = ascending, false = descending.
+     */
+    private boolean sortAscending = true;
 
     // ─────────────────────────────────────────────────────────────
 
@@ -82,7 +87,8 @@ public class UIPreview {
         SwingUtilities.invokeLater(() -> {
             try {
                 UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-            } catch (Exception ignored) { }
+            } catch (Exception ignored) {
+            }
 
             JFrame frame = new JFrame("Configurable Aggregate Report");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -125,10 +131,22 @@ public class UIPreview {
         resultsTable.getTableHeader().setReorderingAllowed(false);
         resultsTable.setRowHeight(20);
 
-        // Enable column sorting
-        javax.swing.table.TableRowSorter<DefaultTableModel> sorter =
-                new javax.swing.table.TableRowSorter<>(tableModel);
-        resultsTable.setRowSorter(sorter);
+        // FIX 3: Replace TableRowSorter with manual sort that pins TOTAL at bottom
+        resultsTable.getTableHeader().addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int viewCol = resultsTable.columnAtPoint(e.getPoint());
+                if (viewCol < 0) return;
+                int modelCol = resultsTable.convertColumnIndexToModel(viewCol);
+                if (modelCol == sortColumn) {
+                    sortAscending = !sortAscending;
+                } else {
+                    sortColumn = modelCol;
+                    sortAscending = true;
+                }
+                sortAndRepopulateTable();
+            }
+        });
 
         JScrollPane scrollPane = new JScrollPane(resultsTable);
         scrollPane.setPreferredSize(new Dimension(900, 200));
@@ -177,17 +195,23 @@ public class UIPreview {
         c.insets = new Insets(4, 4, 4, 4);
         c.anchor = GridBagConstraints.WEST;
 
-        c.gridx = 0; c.gridy = 0; c.weightx = 0;
+        c.gridx = 0;
+        c.gridy = 0;
+        c.weightx = 0;
         panel.add(makeLabel("Filename"), c);
 
-        c.gridx = 1; c.fill = GridBagConstraints.HORIZONTAL; c.weightx = 1.0;
+        c.gridx = 1;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1.0;
         fileNameField.setFont(FONT_REGULAR);
         panel.add(fileNameField, c);
 
         JButton browseBtn = new JButton("Browse...");
         browseBtn.setFont(FONT_REGULAR);
         browseBtn.addActionListener(e -> browseJTL());
-        c.gridx = 2; c.fill = GridBagConstraints.NONE; c.weightx = 0;
+        c.gridx = 2;
+        c.fill = GridBagConstraints.NONE;
+        c.weightx = 0;
         panel.add(browseBtn, c);
 
         return panel;
@@ -204,17 +228,33 @@ public class UIPreview {
         c.anchor = GridBagConstraints.WEST;
 
         c.gridy = 0;
-        c.gridx = 0; c.weightx = 0.25; panel.add(makeLabel("Start Offset (Seconds)"), c);
-        c.gridx = 1; c.weightx = 0.25; panel.add(makeLabel("End Offset (Seconds)"), c);
-        c.gridx = 2; c.weightx = 0.25; panel.add(makeLabel("Percentile (%)"), c);
-        c.gridx = 3; c.weightx = 0.25; panel.add(makeLabel("Visible Columns"), c);
+        c.gridx = 0;
+        c.weightx = 0.25;
+        panel.add(makeLabel("Start Offset (Seconds)"), c);
+        c.gridx = 1;
+        c.weightx = 0.25;
+        panel.add(makeLabel("End Offset (Seconds)"), c);
+        c.gridx = 2;
+        c.weightx = 0.25;
+        panel.add(makeLabel("Percentile (%)"), c);
+        c.gridx = 3;
+        c.weightx = 0.25;
+        panel.add(makeLabel("Visible Columns"), c);
 
-        c.gridy = 1; c.fill = GridBagConstraints.HORIZONTAL;
-        c.gridx = 0; startOffsetField.setFont(FONT_REGULAR); panel.add(startOffsetField, c);
-        c.gridx = 1; endOffsetField.setFont(FONT_REGULAR);   panel.add(endOffsetField, c);
-        c.gridx = 2; percentileField.setFont(FONT_REGULAR);  panel.add(percentileField, c);
+        c.gridy = 1;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 0;
+        startOffsetField.setFont(FONT_REGULAR);
+        panel.add(startOffsetField, c);
+        c.gridx = 1;
+        endOffsetField.setFont(FONT_REGULAR);
+        panel.add(endOffsetField, c);
+        c.gridx = 2;
+        percentileField.setFont(FONT_REGULAR);
+        panel.add(percentileField, c);
 
-        c.gridx = 3; c.fill = GridBagConstraints.NONE;
+        c.gridx = 3;
+        c.fill = GridBagConstraints.NONE;
         panel.add(buildColumnDropdown(), c);
 
         return panel;
@@ -245,10 +285,15 @@ public class UIPreview {
 
     // ── Helpers ───────────────────────────────────────────────────
     private JLabel makeLabel(String text) {
-        JLabel l = new JLabel(text); l.setFont(FONT_REGULAR); return l;
+        JLabel l = new JLabel(text);
+        l.setFont(FONT_REGULAR);
+        return l;
     }
+
     private JTextField makeTextField(String text, int cols) {
-        JTextField f = new JTextField(text, cols); f.setFont(FONT_REGULAR); return f;
+        JTextField f = new JTextField(text, cols);
+        f.setFont(FONT_REGULAR);
+        return f;
     }
 
     private JPanel buildTimeInfoPanel() {
@@ -262,11 +307,14 @@ public class UIPreview {
         c.anchor = GridBagConstraints.WEST;
 
         c.gridy = 0;
-        c.gridx = 0; c.weightx = 0.33;
+        c.gridx = 0;
+        c.weightx = 0.33;
         panel.add(makeLabel("Start Date/Time"), c);
-        c.gridx = 1; c.weightx = 0.33;
+        c.gridx = 1;
+        c.weightx = 0.33;
         panel.add(makeLabel("End Date/Time"), c);
-        c.gridx = 2; c.weightx = 0.34;
+        c.gridx = 2;
+        c.weightx = 0.34;
         panel.add(makeLabel("Duration"), c);
 
         c.gridy = 1;
@@ -369,7 +417,10 @@ public class UIPreview {
 
     private void setupFieldListeners() {
         percentileField.getDocument().addDocumentListener(
-                (SimpleDocListener) () -> { updatePercentileColumn(); refreshTableData(); });
+                (SimpleDocListener) () -> {
+                    updatePercentileColumn();
+                    refreshTableData();
+                });
 
         SimpleDocListener offsetListener = this::reloadWithCurrentFilters;
         startOffsetField.getDocument().addDocumentListener(offsetListener);
@@ -379,7 +430,8 @@ public class UIPreview {
     private void updatePercentileColumn() {
         String p = percentileField.getText().trim();
         if (p.isEmpty()) p = "90";
-        allTableColumns[PERCENTILE_COL_INDEX].setHeaderValue(p + "th Percentile");
+        // FIX 2: append (ms) to match ListenerGUI
+        allTableColumns[PERCENTILE_COL_INDEX].setHeaderValue(p + "th Percentile(ms)");
         resultsTable.getTableHeader().repaint();
     }
 
@@ -388,30 +440,37 @@ public class UIPreview {
         try {
             int p = Integer.parseInt(percentileField.getText().trim());
             populateTableWithResults(cachedResults, p);
-        } catch (NumberFormatException ignored) { }
+        } catch (NumberFormatException ignored) {
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
     // Table population
     // ─────────────────────────────────────────────────────────────
 
+    /**
+     * FIX 3: Separate TOTAL from data rows, sort only data rows, pin TOTAL last.
+     * FIX 1: Use String.format("%.1f/sec") for TPS to guarantee leading zero.
+     */
     private void populateTableWithResults(Map<String, SamplingStatCalculator> results,
                                           int percentile) {
         tableModel.setRowCount(0);
         DecimalFormat df0 = new DecimalFormat("#");
-        DecimalFormat df1 = new DecimalFormat("#.0");
+        DecimalFormat df1 = new DecimalFormat("0.0");
         DecimalFormat df2 = new DecimalFormat("0.00");
         double pFraction = percentile / 100.0;
 
+        List<Object[]> dataRows = new ArrayList<>();
+        Object[] totalRow = null;
+
         for (SamplingStatCalculator calc : results.values()) {
-            // Skip empty calculators (e.g. TOTAL with no samples yet)
             if (calc.getCount() == 0) continue;
 
-            long totalCount  = calc.getCount();
+            long totalCount = calc.getCount();
             long failedCount = Math.round(calc.getErrorPercentage() * totalCount);
             long passedCount = totalCount - failedCount;
 
-            tableModel.addRow(new Object[]{
+            Object[] row = new Object[]{
                     calc.getLabel(),
                     totalCount,
                     passedCount,
@@ -422,8 +481,65 @@ public class UIPreview {
                     df0.format(calc.getPercentPoint(pFraction).doubleValue()),
                     df1.format(calc.getStandardDeviation()),
                     df2.format(calc.getErrorPercentage() * 100.0) + "%",
-                    df1.format(calc.getRate()) + "/sec"
+                    // FIX 1: %.1f always produces a leading zero (0.8 not .8)
+                    String.format("%.1f/sec", calc.getRate())
+            };
+
+            if (TOTAL_LABEL.equals(calc.getLabel())) {
+                totalRow = row;
+            } else {
+                dataRows.add(row);
+            }
+        }
+
+        // FIX 3: Sort only data rows if a sort is active
+        if (sortColumn >= 0 && sortColumn < COLUMN_NAMES.length) {
+            final int col = sortColumn;
+            final boolean asc = sortAscending;
+            dataRows.sort((a, b) -> {
+                Comparable<Object> va = toComparable(a[col]);
+                Comparable<Object> vb = toComparable(b[col]);
+                int cmp = va.compareTo(vb);
+                return asc ? cmp : -cmp;
             });
+        }
+
+        for (Object[] row : dataRows) {
+            tableModel.addRow(row);
+        }
+        // FIX 3: TOTAL always last, never sorted
+        if (totalRow != null) {
+            tableModel.addRow(totalRow);
+        }
+    }
+
+    /**
+     * Re-sort the current table data without re-parsing the file.
+     */
+    private void sortAndRepopulateTable() {
+        if (cachedResults == null || cachedResults.isEmpty()) return;
+        int p;
+        try {
+            p = Integer.parseInt(percentileField.getText().trim());
+        } catch (NumberFormatException e) {
+            p = 90;
+        }
+        populateTableWithResults(cachedResults, p);
+    }
+
+    /**
+     * Convert a table cell value to a Comparable for sorting.
+     * Strips suffixes like "%", "/sec" and parses as number where possible.
+     */
+    @SuppressWarnings("unchecked")
+    private Comparable<Object> toComparable(Object val) {
+        if (val == null) return (Comparable<Object>) (Comparable<?>) "";
+        String s = val.toString();
+        String numeric = s.replace("%", "").replace("/sec", "").trim();
+        try {
+            return (Comparable<Object>) (Comparable<?>) Double.parseDouble(numeric);
+        } catch (NumberFormatException e) {
+            return (Comparable<Object>) (Comparable<?>) s;
         }
     }
 
@@ -432,7 +548,6 @@ public class UIPreview {
     // ─────────────────────────────────────────────────────────────
 
     private void browseJTL() {
-        // Determine starting directory
         File startDir = new File(System.getProperty("user.dir"));
         String currentFile = fileNameField.getText().trim();
         if (!currentFile.isEmpty()) {
@@ -447,7 +562,10 @@ public class UIPreview {
             public boolean accept(File f) {
                 return f.isDirectory() || f.getName().toLowerCase().endsWith(".jtl");
             }
-            public String getDescription() { return "JTL Files (*.jtl)"; }
+
+            public String getDescription() {
+                return "JTL Files (*.jtl)";
+            }
         });
         if (fc.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
             File f = fc.getSelectedFile();
@@ -503,14 +621,20 @@ public class UIPreview {
         try {
             String s = startOffsetField.getText().trim();
             if (!s.isEmpty()) opts.startOffset = Integer.parseInt(s);
-        } catch (NumberFormatException ignored) { opts.startOffset = 0; }
+        } catch (NumberFormatException ignored) {
+            opts.startOffset = 0;
+        }
         try {
             String s = endOffsetField.getText().trim();
             if (!s.isEmpty()) opts.endOffset = Integer.parseInt(s);
-        } catch (NumberFormatException ignored) { opts.endOffset = 0; }
+        } catch (NumberFormatException ignored) {
+            opts.endOffset = 0;
+        }
         try {
             opts.percentile = Integer.parseInt(percentileField.getText().trim());
-        } catch (NumberFormatException ignored) { opts.percentile = 90; }
+        } catch (NumberFormatException ignored) {
+            opts.percentile = 90;
+        }
         return opts;
     }
 
@@ -532,7 +656,10 @@ public class UIPreview {
             public boolean accept(File f) {
                 return f.isDirectory() || f.getName().toLowerCase().endsWith(".csv");
             }
-            public String getDescription() { return "CSV Files (*.csv)"; }
+
+            public String getDescription() {
+                return "CSV Files (*.csv)";
+            }
         });
         fc.setSelectedFile(new File("aggregate_report.csv"));
 
@@ -595,8 +722,17 @@ public class UIPreview {
     @FunctionalInterface
     private interface SimpleDocListener extends javax.swing.event.DocumentListener {
         void onUpdate();
-        default void insertUpdate(javax.swing.event.DocumentEvent e)  { onUpdate(); }
-        default void removeUpdate(javax.swing.event.DocumentEvent e)  { onUpdate(); }
-        default void changedUpdate(javax.swing.event.DocumentEvent e) { onUpdate(); }
+
+        default void insertUpdate(javax.swing.event.DocumentEvent e) {
+            onUpdate();
+        }
+
+        default void removeUpdate(javax.swing.event.DocumentEvent e) {
+            onUpdate();
+        }
+
+        default void changedUpdate(javax.swing.event.DocumentEvent e) {
+            onUpdate();
+        }
     }
 }

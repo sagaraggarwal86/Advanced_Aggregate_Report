@@ -1,13 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
              http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>com.personal</groupId>
-    <artifactId>jmeter-plugin-Config-Aggregate-Report</artifactId>
+    <groupId>io.github.sagaraggarwal86</groupId>
+    <artifactId>Configurable_Aggregate_Report</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
+    <name>Configurable Aggregate Report Plugin</name>
+    <description>A listener plugin to prepare report for configurable parameters for Apache JMeter</description>
+    <url>https://github.com/sagaraggarwal86/Configurable_Aggregate_Report</url>
+
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>sagaraggarwal86</id>
+            <name>Sagar Aggarwal</name>
+            <email>sagarhoney.aggarwal@email.com</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/sagaraggarwal86/Configurable_Aggregate_Report.git</connection>
+        <developerConnection>scm:git:ssh://github.com:sagaraggarwal86/Configurable_Aggregate_Report.git
+        </developerConnection>
+        <url>https://github.com/sagaraggarwal86/Configurable_Aggregate_Report/tree/main</url>
+    </scm>
 
     <properties>
         <jmeter.version>5.6.3</jmeter.version>
@@ -17,57 +43,28 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-    <!--
-        FIX SUMMARY
-        ===========
-        Problem 1  : slf4j-api:2.0.9 not found            → bumped to 2.0.17 (current stable)
-        Problem 2  : maven-surefire-plugin:3.2.2 not found → bumped to 3.5.5 (current stable)
-        Problems 3-15: transitive CVEs fixed via <dependencyManagement> overrides
-                       and <exclusions> where no safe compatible version exists.
-
-        IMPORTANT: All JMeter deps stay <scope>provided</scope> so none of
-        these overrides are bundled into your plugin JAR. The overrides simply
-        pin safe versions during compilation and test resolution so that
-        vulnerability scanners (Mend/Dependabot) stop flagging them.
-
-        NOTE: "slf4j-api:2.0.17 not found" and "maven-surefire-plugin:3.5.5 not found"
-        are IntelliJ index/cache issues. Both versions exist on Maven Central.
-        Fix: File → Invalidate Caches → Invalidate and Restart, then Maven → Reimport.
-    -->
-
     <dependencyManagement>
         <dependencies>
-
-            <!-- Fix 3: jackson-core GHSA-72hv-8253-57qq (was 2.16.1) -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-core</artifactId>
                 <version>2.17.2</version>
             </dependency>
-
-            <!-- Fix 4: xstream CVE-2024-47072 (was 1.4.20) → 1.4.21 is the patch release -->
             <dependency>
                 <groupId>com.thoughtworks.xstream</groupId>
                 <artifactId>xstream</artifactId>
                 <version>1.4.21</version>
             </dependency>
-
-            <!-- Fix 6: commons-lang3 CVE-2025-48924 (was 3.14.0)
-                 NOTE: 3.17.0 is STILL vulnerable; fix requires >= 3.18.0 -->
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>3.18.0</version>
             </dependency>
-
-            <!-- Fix 7: log4j-core CVE-2025-68161 (was 2.22.1) -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
                 <version>2.24.3</version>
             </dependency>
-
-            <!-- Fix 8+9: batik CVE-2022-44729 / CVE-2022-44730 (was 1.16) -->
             <dependency>
                 <groupId>org.apache.xmlgraphics</groupId>
                 <artifactId>batik-bridge</artifactId>
@@ -83,41 +80,25 @@
                 <artifactId>batik-transcoder</artifactId>
                 <version>1.17</version>
             </dependency>
-
-            <!-- Fix 12: json-path CVE-2023-51074 (was 2.8.0) -->
             <dependency>
                 <groupId>com.jayway.jsonpath</groupId>
                 <artifactId>json-path</artifactId>
                 <version>2.9.0</version>
             </dependency>
-
-            <!-- Fix 13: json-smart CVE-2024-57699 (was 2.5.0) -->
             <dependency>
                 <groupId>net.minidev</groupId>
                 <artifactId>json-smart</artifactId>
                 <version>2.5.2</version>
             </dependency>
-
-            <!-- Fix 14: rhino CVE-2025-66453 DoS (was 1.7.14) -->
             <dependency>
                 <groupId>org.mozilla</groupId>
                 <artifactId>rhino</artifactId>
                 <version>1.7.15</version>
             </dependency>
-
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
-
-        <!-- JMeter Core – provided = don't bundle in JAR -->
-        <!--
-            Fix 5  : jtidy:r938 CVE-2023-34623  – no newer release exists; excluded here
-            Fix 10 : tika-core:1.28.5 CVE-2025-66516  – Tika 2.x API is incompatible with
-            Fix 11 : tika-parsers:1.28.5           JMeter 5.x; safest option is to exclude
-                                                   them from your compile classpath.
-                                                   JMeter bundles its own copy at runtime.
-        -->
         <dependency>
             <groupId>org.apache.jmeter</groupId>
             <artifactId>ApacheJMeter_core</artifactId>
@@ -143,7 +124,6 @@
             </exclusions>
         </dependency>
 
-        <!-- JMeter Components (ResultCollector, visualizers, GUI base classes) -->
         <dependency>
             <groupId>org.apache.jmeter</groupId>
             <artifactId>ApacheJMeter_components</artifactId>
@@ -169,7 +149,6 @@
             </exclusions>
         </dependency>
 
-        <!-- JMeter internal utilities (JMeterUtils, string helpers, etc.) -->
         <dependency>
             <groupId>org.apache.jmeter</groupId>
             <artifactId>jorphan</artifactId>
@@ -183,7 +162,6 @@
             </exclusions>
         </dependency>
 
-        <!-- Fix 1: slf4j-api 2.0.9 not found → 2.0.17 is current stable release -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -191,7 +169,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- SLF4J provider for standalone/test usage (UIPreview, unit tests) -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
@@ -199,7 +176,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- JUnit 5 -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -207,53 +183,90 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Mockito -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
             <version>5.5.0</version>
             <scope>test</scope>
         </dependency>
-
     </dependencies>
 
     <build>
         <plugins>
+            <!-- Central Portal Publishing -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>true</autoPublish>
+                </configuration>
+            </plugin>
 
-            <!-- Fix 2: maven-surefire-plugin 3.2.2 not found → 3.5.5 is current stable.
-                        This is also REQUIRED for JUnit 5 tests to actually execute. -->
+            <!-- Sources JAR (required by Maven Central) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Javadoc JAR (required by Maven Central) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <doclint>none</doclint>
+                </configuration>
+            </plugin>
+
+            <!-- GPG Signing (required by Maven Central) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.2.2</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
+                    <executable>C:\Program Files\GnuPG\bin\gpg.exe</executable>
+                </configuration>
+            </plugin>
+
+            <!-- Surefire for JUnit 5 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.5</version>
             </plugin>
-
-            <!-- Shade: one fat JAR for JMeter lib/ext/
-                 Signature filter prevents SecurityException at JMeter startup. -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.1</version>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals><goal>shade</goal></goals>
-                        <configuration>
-                            <filters>
-                                <filter>
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/*.SF</exclude>
-                                        <exclude>META-INF/*.DSA</exclude>
-                                        <exclude>META-INF/*.RSA</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
         </plugins>
     </build>
 

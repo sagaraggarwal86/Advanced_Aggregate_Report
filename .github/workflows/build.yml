@@ -2,9 +2,9 @@ name: Build and Test
 
 on:
   push:
-    branches: [main, develop]
+    branches: [ main, develop ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   build:
@@ -20,5 +20,5 @@ jobs:
       - run: mvn test
       - uses: actions/upload-artifact@v4
         with:
-          name: jmeter-plugin-Config-Aggregate-Report
-          path: target/jmeter-plugin-Config-Aggregate-Report-*.jar
+          name: Configurable_Aggregate_Report
+          path: target/Configurable_Aggregate_Report-*.jar

@@ -34,14 +34,8 @@ public class ListenerGUI extends AbstractVisualizer {
     private static final Logger log = LoggerFactory.getLogger(ListenerGUI.class);
 
     // ── Fonts ────────────────────────────────────────────────────
-    private static final Font FONT_HEADER  = new Font("Calibri", Font.PLAIN, 13);
+    private static final Font FONT_HEADER = new Font("Calibri", Font.PLAIN, 13);
     private static final Font FONT_REGULAR = new Font("Calibri", Font.PLAIN, 11);
-
-    // ── Filter settings fields ───────────────────────────────────
-    private final JTextField startOffsetField = new JTextField("", 10);
-    private final JTextField endOffsetField   = new JTextField("", 10);
-    private final JTextField percentileField  = new JTextField("90", 10);
-
     // ── Column definitions ───────────────────────────────────────
     private static final String[] ALL_COLUMNS = {
             "Transaction Name",
@@ -51,14 +45,27 @@ public class ListenerGUI extends AbstractVisualizer {
             "Avg Response Time(ms)",
             "Min Response Time(ms)",
             "Max Response Time(ms)",
-            "90th Percentile",
+            "90th Percentile(ms)",
             "Std. Dev.",
             "Error Rate",
             "TPS"
     };
-    /** Index of the percentile column in ALL_COLUMNS. */
+    /**
+     * Index of the percentile column in ALL_COLUMNS.
+     */
     private static final int PERCENTILE_COL_INDEX = 7;
+    private static final SimpleDateFormat TIME_FORMAT =
+            new SimpleDateFormat("MM/dd/yy HH:mm:ss");
+    /**
+     * Label used for the totals row — always pinned at bottom.
+     */
+    private static final String TOTAL_LABEL = "TOTAL";
+    // ── Filter settings fields ───────────────────────────────────
+    private final JTextField startOffsetField = new JTextField("", 10);
+    private final JTextField endOffsetField = new JTextField("", 10);
+    private final JTextField percentileField = new JTextField("90", 10);
 
+    // ── Column visibility menu items ───────────────────────────────
     // ── Results table ────────────────────────────────────────────
     private final DefaultTableModel tableModel = new DefaultTableModel(ALL_COLUMNS, 0) {
         @Override
@@ -67,31 +74,42 @@ public class ListenerGUI extends AbstractVisualizer {
         }
     };
     private final JTable resultsTable = new JTable(tableModel);
-
-    // ── Column visibility menu items ───────────────────────────────
-    /** One menu item per column. Index matches ALL_COLUMNS. */
+    /**
+     * One menu item per column. Index matches ALL_COLUMNS.
+     */
     private final JCheckBoxMenuItem[] columnMenuItems = new JCheckBoxMenuItem[ALL_COLUMNS.length];
-    /** Saved TableColumn objects for hidden columns (to restore them). */
+    /**
+     * Saved TableColumn objects for hidden columns (to restore them).
+     */
     private final TableColumn[] allTableColumns = new TableColumn[ALL_COLUMNS.length];
-
     // ── Bottom controls ──────────────────────────────────────────
     private final JCheckBox saveTableHeaderBox = new JCheckBox("Save Table Header");
-
     // ── Time info fields (read-only) ─────────────────────────────
-    private final JTextField startTimeField  = new JTextField("", 20);
-    private final JTextField endTimeField    = new JTextField("", 20);
-    private final JTextField durationField   = new JTextField("", 20);
-    private static final SimpleDateFormat TIME_FORMAT =
-            new SimpleDateFormat("MM/dd/yy HH:mm:ss");
-
+    private final JTextField startTimeField = new JTextField("", 20);
+    private final JTextField endTimeField = new JTextField("", 20);
+    private final JTextField durationField = new JTextField("", 20);
     // ── State ────────────────────────────────────────────────────
     private String lastLoadedFilePath = null;
-    /** Cached parse results for column toggle re-rendering. */
+    /**
+     * Cached parse results for column toggle re-rendering.
+     */
     private Map<String, SamplingStatCalculator> cachedResults = null;
-    /** True while configure() is running — suppresses file auto-load. */
+    /**
+     * True while configure() is running — suppresses file auto-load.
+     */
     private boolean configuring = false;
-    /** True after user clicks Clear — suppresses file auto-load until next Browse. */
+    /**
+     * True after user clicks Clear — suppresses file auto-load until next Browse.
+     */
     private boolean userCleared = false;
+    /**
+     * Current sort column index (-1 = no sort).
+     */
+    private int sortColumn = -1;
+    /**
+     * True = ascending, false = descending.
+     */
+    private boolean sortAscending = true;
 
     // ─────────────────────────────────────────────────────────────
     // Constructor
@@ -270,13 +288,17 @@ public class ListenerGUI extends AbstractVisualizer {
 
         // Labels row
         c.gridy = 0;
-        c.gridx = 0; c.weightx = 0.25;
+        c.gridx = 0;
+        c.weightx = 0.25;
         addLabel(panel, "Start Offset (Seconds)", c);
-        c.gridx = 1; c.weightx = 0.25;
+        c.gridx = 1;
+        c.weightx = 0.25;
         addLabel(panel, "End Offset (Seconds)", c);
-        c.gridx = 2; c.weightx = 0.25;
+        c.gridx = 2;
+        c.weightx = 0.25;
         addLabel(panel, "Percentile (%)", c);
-        c.gridx = 3; c.weightx = 0.25;
+        c.gridx = 3;
+        c.weightx = 0.25;
         addLabel(panel, "Visible Columns", c);
 
         // Input row
@@ -342,11 +364,14 @@ public class ListenerGUI extends AbstractVisualizer {
 
         // Labels row
         c.gridy = 0;
-        c.gridx = 0; c.weightx = 0.33;
+        c.gridx = 0;
+        c.weightx = 0.33;
         addLabel(panel, "Start Date/Time", c);
-        c.gridx = 1; c.weightx = 0.33;
+        c.gridx = 1;
+        c.weightx = 0.33;
         addLabel(panel, "End Date/Time", c);
-        c.gridx = 2; c.weightx = 0.34;
+        c.gridx = 2;
+        c.weightx = 0.34;
         addLabel(panel, "Duration", c);
 
         // Fields row (read-only)
@@ -430,10 +455,22 @@ public class ListenerGUI extends AbstractVisualizer {
         resultsTable.getTableHeader().setReorderingAllowed(false);
         resultsTable.setRowHeight(20);
 
-        // Enable column sorting
-        javax.swing.table.TableRowSorter<DefaultTableModel> sorter =
-                new javax.swing.table.TableRowSorter<>(tableModel);
-        resultsTable.setRowSorter(sorter);
+        // Manual column sorting — TOTAL row always stays at bottom
+        resultsTable.getTableHeader().addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int viewCol = resultsTable.columnAtPoint(e.getPoint());
+                if (viewCol < 0) return;
+                int modelCol = resultsTable.convertColumnIndexToModel(viewCol);
+                if (modelCol == sortColumn) {
+                    sortAscending = !sortAscending; // Toggle direction
+                } else {
+                    sortColumn = modelCol;
+                    sortAscending = true;
+                }
+                sortAndRepopulateTable();
+            }
+        });
 
         JScrollPane scrollPane = new JScrollPane(resultsTable);
         scrollPane.setPreferredSize(new Dimension(900, 300));
@@ -500,7 +537,10 @@ public class ListenerGUI extends AbstractVisualizer {
 
     private void setupFieldListeners() {
         percentileField.getDocument().addDocumentListener(
-                (SimpleDocListener) () -> { updatePercentileColumn(); reloadJTL(); });
+                (SimpleDocListener) () -> {
+                    updatePercentileColumn();
+                    reloadJTL();
+                });
 
         SimpleDocListener offsetListener = this::reloadJTL;
         startOffsetField.getDocument().addDocumentListener(offsetListener);
@@ -511,7 +551,7 @@ public class ListenerGUI extends AbstractVisualizer {
         String p = percentileField.getText().trim();
         if (p.isEmpty()) p = "90";
         // Update stored column header
-        allTableColumns[PERCENTILE_COL_INDEX].setHeaderValue(p + "th Percentile");
+        allTableColumns[PERCENTILE_COL_INDEX].setHeaderValue(p + "th Percentile(ms)");
         resultsTable.getTableHeader().repaint();
     }
 
@@ -524,18 +564,22 @@ public class ListenerGUI extends AbstractVisualizer {
         tableModel.setRowCount(0);
 
         DecimalFormat df0 = new DecimalFormat("#");
-        DecimalFormat df1 = new DecimalFormat("#.0");
+        DecimalFormat df1 = new DecimalFormat("0.0");
         DecimalFormat df2 = new DecimalFormat("0.00");
         double pFraction = percentile / 100.0;
+
+        // Build rows: separate TOTAL from the rest
+        List<Object[]> dataRows = new ArrayList<>();
+        Object[] totalRow = null;
 
         for (SamplingStatCalculator calc : results.values()) {
             if (calc.getCount() == 0) continue;
 
-            long totalCount  = calc.getCount();
+            long totalCount = calc.getCount();
             long failedCount = Math.round(calc.getErrorPercentage() * totalCount);
             long passedCount = totalCount - failedCount;
 
-            tableModel.addRow(new Object[]{
+            Object[] row = new Object[]{
                     calc.getLabel(),
                     totalCount,
                     passedCount,
@@ -546,8 +590,67 @@ public class ListenerGUI extends AbstractVisualizer {
                     df0.format(calc.getPercentPoint(pFraction).doubleValue()),
                     df1.format(calc.getStandardDeviation()),
                     df2.format(calc.getErrorPercentage() * 100.0) + "%",
-                    df1.format(calc.getRate()) + "/sec"
+                    String.format("%.1f/sec", calc.getRate())
+            };
+
+            if (TOTAL_LABEL.equals(calc.getLabel())) {
+                totalRow = row;
+            } else {
+                dataRows.add(row);
+            }
+        }
+
+        // Sort data rows (not TOTAL) if a sort column is active
+        if (sortColumn >= 0 && sortColumn < ALL_COLUMNS.length) {
+            final int col = sortColumn;
+            final boolean asc = sortAscending;
+            dataRows.sort((a, b) -> {
+                Comparable<Object> va = toComparable(a[col]);
+                Comparable<Object> vb = toComparable(b[col]);
+                int cmp = va.compareTo((Object) vb);
+                return asc ? cmp : -cmp;
             });
+        }
+
+        // Add sorted data rows first
+        for (Object[] row : dataRows) {
+            tableModel.addRow(row);
+        }
+        // TOTAL always last
+        if (totalRow != null) {
+            tableModel.addRow(totalRow);
+        }
+    }
+
+    /**
+     * Re-sort the current table data when a column header is clicked.
+     */
+    private void sortAndRepopulateTable() {
+        if (cachedResults == null || cachedResults.isEmpty()) return;
+        int p;
+        try {
+            p = Integer.parseInt(percentileField.getText().trim());
+        } catch (NumberFormatException e) {
+            p = 90;
+        }
+        populateTable(cachedResults, p);
+    }
+
+    /**
+     * Convert a table cell value to a Comparable for sorting.
+     * Strips suffixes like "%", "/sec" and parses as number where possible.
+     */
+    @SuppressWarnings("unchecked")
+    private Comparable<Object> toComparable(Object val) {
+        if (val == null) return (Comparable<Object>) (Comparable<?>) "";
+        String s = val.toString();
+        // Strip known suffixes for numeric sorting
+        String numeric = s.replace("%", "").replace("/sec", "").trim();
+        try {
+            return (Comparable<Object>) (Comparable<?>) Double.parseDouble(numeric);
+        } catch (NumberFormatException e) {
+            // Fall back to string comparison (for Transaction Name)
+            return (Comparable<Object>) (Comparable<?>) s;
         }
     }
 
@@ -682,14 +785,20 @@ public class ListenerGUI extends AbstractVisualizer {
         try {
             String s = startOffsetField.getText().trim();
             if (!s.isEmpty()) opts.startOffset = Integer.parseInt(s);
-        } catch (NumberFormatException ignored) { opts.startOffset = 0; }
+        } catch (NumberFormatException ignored) {
+            opts.startOffset = 0;
+        }
         try {
             String s = endOffsetField.getText().trim();
             if (!s.isEmpty()) opts.endOffset = Integer.parseInt(s);
-        } catch (NumberFormatException ignored) { opts.endOffset = 0; }
+        } catch (NumberFormatException ignored) {
+            opts.endOffset = 0;
+        }
         try {
             opts.percentile = Integer.parseInt(percentileField.getText().trim());
-        } catch (NumberFormatException ignored) { opts.percentile = 90; }
+        } catch (NumberFormatException ignored) {
+            opts.percentile = 90;
+        }
         return opts;
     }
 
@@ -711,7 +820,10 @@ public class ListenerGUI extends AbstractVisualizer {
             public boolean accept(File f) {
                 return f.isDirectory() || f.getName().toLowerCase().endsWith(".csv");
             }
-            public String getDescription() { return "CSV Files (*.csv)"; }
+
+            public String getDescription() {
+                return "CSV Files (*.csv)";
+            }
         });
         fc.setSelectedFile(new File("aggregate_report.csv"));
 
@@ -794,8 +906,17 @@ public class ListenerGUI extends AbstractVisualizer {
     @FunctionalInterface
     private interface SimpleDocListener extends javax.swing.event.DocumentListener {
         void onUpdate();
-        default void insertUpdate(javax.swing.event.DocumentEvent e)  { onUpdate(); }
-        default void removeUpdate(javax.swing.event.DocumentEvent e)  { onUpdate(); }
-        default void changedUpdate(javax.swing.event.DocumentEvent e) { onUpdate(); }
+
+        default void insertUpdate(javax.swing.event.DocumentEvent e) {
+            onUpdate();
+        }
+
+        default void removeUpdate(javax.swing.event.DocumentEvent e) {
+            onUpdate();
+        }
+
+        default void changedUpdate(javax.swing.event.DocumentEvent e) {
+            onUpdate();
+        }
     }
 }

@@ -21,28 +21,6 @@ public class JTLParser {
     private static final String TOTAL_LABEL = "TOTAL";
 
     /**
-     * Result of parsing a JTL file — includes aggregated stats plus time metadata.
-     */
-    public static class ParseResult {
-        /** Per-label calculators with TOTAL row last. */
-        public final Map<String, SamplingStatCalculator> results;
-        /** Timestamp (ms) of the earliest sample start. */
-        public final long startTimeMs;
-        /** Timestamp (ms) of the latest sample end (timestamp + elapsed). */
-        public final long endTimeMs;
-        /** Test duration in milliseconds (endTimeMs - startTimeMs). */
-        public final long durationMs;
-
-        public ParseResult(Map<String, SamplingStatCalculator> results,
-                           long startTimeMs, long endTimeMs) {
-            this.results = results;
-            this.startTimeMs = startTimeMs;
-            this.endTimeMs = endTimeMs;
-            this.durationMs = Math.max(0, endTimeMs - startTimeMs);
-        }
-    }
-
-    /**
      * Parse JTL file and return aggregated results with time metadata.
      *
      * @param filePath path to the JTL CSV file
@@ -103,7 +81,7 @@ public class JTLParser {
 
         // Second pass: parse, filter, aggregate — and track start/end times
         long testStartMs = Long.MAX_VALUE;
-        long testEndMs   = Long.MIN_VALUE;
+        long testEndMs = Long.MIN_VALUE;
 
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
             String headerLine = reader.readLine();
@@ -133,9 +111,9 @@ public class JTLParser {
 
                         // Track earliest start and latest end
                         long sampleStart = sr.getTimeStamp();
-                        long sampleEnd   = sampleStart + sr.getTime();
+                        long sampleEnd = sampleStart + sr.getTime();
                         if (sampleStart < testStartMs) testStartMs = sampleStart;
-                        if (sampleEnd > testEndMs)     testEndMs = sampleEnd;
+                        if (sampleEnd > testEndMs) testEndMs = sampleEnd;
                     }
                 } catch (Exception e) {
                     // Skip malformed lines
@@ -149,7 +127,7 @@ public class JTLParser {
 
         // Normalize if no samples matched
         if (testStartMs == Long.MAX_VALUE) testStartMs = 0;
-        if (testEndMs == Long.MIN_VALUE)   testEndMs = 0;
+        if (testEndMs == Long.MIN_VALUE) testEndMs = 0;
 
         return new ParseResult(results, testStartMs, testEndMs);
     }
@@ -164,10 +142,6 @@ public class JTLParser {
         return true;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // CSV parsing
-    // ─────────────────────────────────────────────────────────────
-
     private Map<String, Integer> buildColumnMap(String[] headers) {
         Map<String, Integer> map = new HashMap<>();
         for (int i = 0; i < headers.length; i++) {
@@ -175,6 +149,10 @@ public class JTLParser {
         }
         return map;
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // CSV parsing
+    // ─────────────────────────────────────────────────────────────
 
     /**
      * Parse one CSV line directly into a {@link SampleResult}.
@@ -239,10 +217,6 @@ public class JTLParser {
         return fields.toArray(new String[0]);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Filtering
-    // ─────────────────────────────────────────────────────────────
-
     private boolean shouldInclude(SampleResult sr, Map<String, Integer> columnMap,
                                   String rawLine, FilterOptions options) {
         String label = sr.getSampleLabel();
@@ -290,7 +264,7 @@ public class JTLParser {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // Field extraction helpers
+    // Filtering
     // ─────────────────────────────────────────────────────────────
 
     private String getString(String[] values, Map<String, Integer> map,
@@ -304,6 +278,10 @@ public class JTLParser {
         return value;
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // Field extraction helpers
+    // ─────────────────────────────────────────────────────────────
+
     private long getLong(String[] values, Map<String, Integer> map,
                          String column, long defaultValue) {
         String str = getString(values, map, column, "");
@@ -312,6 +290,36 @@ public class JTLParser {
             return Long.parseLong(str);
         } catch (NumberFormatException e) {
             return defaultValue;
+        }
+    }
+
+    /**
+     * Result of parsing a JTL file — includes aggregated stats plus time metadata.
+     */
+    public static class ParseResult {
+        /**
+         * Per-label calculators with TOTAL row last.
+         */
+        public final Map<String, SamplingStatCalculator> results;
+        /**
+         * Timestamp (ms) of the earliest sample start.
+         */
+        public final long startTimeMs;
+        /**
+         * Timestamp (ms) of the latest sample end (timestamp + elapsed).
+         */
+        public final long endTimeMs;
+        /**
+         * Test duration in milliseconds (endTimeMs - startTimeMs).
+         */
+        public final long durationMs;
+
+        public ParseResult(Map<String, SamplingStatCalculator> results,
+                           long startTimeMs, long endTimeMs) {
+            this.results = results;
+            this.startTimeMs = startTimeMs;
+            this.endTimeMs = endTimeMs;
+            this.durationMs = Math.max(0, endTimeMs - startTimeMs);
         }
     }
 

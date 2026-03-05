@@ -18,12 +18,11 @@ import org.apache.jmeter.reporters.ResultCollector;
  */
 public class ListenerCollector extends ResultCollector {
 
+    public static final String PROP_START_OFFSET = "startOffset";
+    public static final String PROP_END_OFFSET = "endOffset";
+    public static final String PROP_PERCENTILE = "percentile";
     @java.io.Serial
     private static final long serialVersionUID = 1L;
-
-    public static final String PROP_START_OFFSET = "startOffset";
-    public static final String PROP_END_OFFSET   = "endOffset";
-    public static final String PROP_PERCENTILE   = "percentile";
 
     public ListenerCollector() {
         super();
