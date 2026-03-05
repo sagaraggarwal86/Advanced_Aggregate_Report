@@ -65,7 +65,7 @@
 │             [Save Table Data]  ☑ Save Table Header                │
 └───────────────────────────────────────────────────────────────────┘
 
-![Alt Screenshot](img.jpg?raw=true "Configurable_Aggregate_Report")
+![Alt text](img.jpg)
 
 ```
 
