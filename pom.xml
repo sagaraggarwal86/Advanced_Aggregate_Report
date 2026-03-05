@@ -267,6 +267,40 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.5</version>
             </plugin>
+
+            <!-- Auto-update README.md JAR version when pom.xml version changes.
+                 README.md always holds the real version number (e.g. 1.1.0) so
+                 IntelliJ preview renders correctly without needing a Maven build.
+                 On every 'mvn' run, this task regex-replaces the old version in
+                 all JAR filenames with the current ${project.version}. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>update-readme-version</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <!-- replaceregexp matches any existing semantic version
+                                     (e.g. 1.0.0, 1.1.0, 2.3.1) in JAR filenames and
+                                     replaces it with the current project version.
+                                     README.md always contains the real version — no
+                                     placeholder — so IntelliJ preview is always correct. -->
+                                <replaceregexp file="${project.basedir}/README.md"
+                                               match="Configurable_Aggregate_Report-[0-9]+\.[0-9]+\.[0-9]+\.jar"
+                                               replace="Configurable_Aggregate_Report-${project.version}.jar"
+                                               flags="g"
+                                               byline="false"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
