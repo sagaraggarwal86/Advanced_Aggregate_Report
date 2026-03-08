@@ -277,6 +277,19 @@
                 </configuration>
             </plugin>
 
+            <!-- exec:java uses the test classpath so that slf4j-simple (test scope)
+                 is available when running UIPreview standalone.
+                 Without this, slf4j-api has no provider and emits NOP warnings. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>com.personal.jmeter.UIPreview</mainClass>
+                    <classpathScope>test</classpathScope>
+                </configuration>
+            </plugin>
+
             <!-- Surefire for JUnit 5 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

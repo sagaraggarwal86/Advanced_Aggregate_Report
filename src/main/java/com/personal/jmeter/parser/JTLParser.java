@@ -200,7 +200,7 @@ public class JTLParser {
             sr.setThreadName(getString(v, colMap, "threadName", ""));
             sr.setDataType(getString(v, colMap, "dataType", ""));
             sr.setSuccessful("true".equalsIgnoreCase(getString(v, colMap, "success", "true")));
-            sr.setBytes((int) getLong(v, colMap, "bytes", 0));
+            sr.setBytes(getLong(v, colMap, "bytes", 0));
             sr.setSentBytes(getLong(v, colMap, "sentBytes", 0));
             sr.setLatency(getLong(v, colMap, "Latency", 0));
             sr.setIdleTime(getLong(v, colMap, "IdleTime", 0));

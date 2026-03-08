@@ -49,9 +49,14 @@ public class PromptBuilder {
         String json    = GSON.toJson(buildSummary(results, percentile));
         String context = buildContextBlock(users, scenarioName, scenarioDesc, startTime, duration);
 
-        return "You are a senior performance engineer. "
-                + "Analyse the JMeter load test results below and write a concise professional report "
-                + "focused on overall system behaviour.\n\n"
+        return "You are a senior performance engineer specialising in bottleneck analysis and web diagnostics. "
+                + "Analyse the JMeter load test results below and write a concise professional report. "
+                + "Where response-time trends would normally be visible in a performance chart "
+                + "(e.g. ramp-up latency spikes, throughput plateaus, sustained degradation), "
+                + "infer those patterns from the statistical data provided (avg, median, stdDev, min/max). "
+                + "Apply web-performance diagnostic reasoning: consider DNS/TCP/TLS overhead, "
+                + "connection pool exhaustion, backend processing time, and network bandwidth saturation "
+                + "as candidate root causes when interpreting slow or variable endpoints.\n\n"
                 + "## Test Context\n"
                 + context + "\n\n"
                 + "## Test Data Summary (JSON)\n"
@@ -75,7 +80,7 @@ public class PromptBuilder {
     }
 
     private Map<String, Object> buildGlobalStats(Map<String, SamplingStatCalculator> results,
-                                                  int percentile, double pFraction) {
+                                                 int percentile, double pFraction) {
         Map<String, Object> global = new LinkedHashMap<>();
         SamplingStatCalculator total = results.get(TOTAL_LABEL);
         if (total == null || total.getCount() == 0) return global;
@@ -145,7 +150,7 @@ public class PromptBuilder {
     }
 
     private List<String> buildBreachList(double avg, double pVal, double errPct,
-                                          double stdDev, int percentile) {
+                                         double stdDev, int percentile) {
         List<String> breaches = new ArrayList<>();
         if (avg    > THRESHOLD_AVG_MS)                          breaches.add("avgMs > " + (int) THRESHOLD_AVG_MS + "ms");
         if (pVal   > THRESHOLD_PCT_MS)                          breaches.add(percentile + "thPct > " + (int) THRESHOLD_PCT_MS + "ms");
@@ -179,7 +184,7 @@ public class PromptBuilder {
     }
 
     private List<String> buildSlowestList(Map<String, SamplingStatCalculator> results,
-                                           double pFraction, int topN) {
+                                          double pFraction, int topN) {
         List<Map.Entry<String, Double>> ranked = new ArrayList<>();
         for (Map.Entry<String, SamplingStatCalculator> entry : results.entrySet()) {
             if (TOTAL_LABEL.equals(entry.getKey())) continue;
@@ -202,7 +207,7 @@ public class PromptBuilder {
     // ─────────────────────────────────────────────────────────────
 
     private String buildContextBlock(String users, String scenarioName, String scenarioDesc,
-                                      String startTime, String duration) {
+                                     String startTime, String duration) {
         List<String> parts = new ArrayList<>();
         if (notBlank(scenarioName)) parts.add("Scenario: "      + scenarioName.trim());
         if (notBlank(users))        parts.add("Virtual Users: " + users.trim());
@@ -229,13 +234,24 @@ public class PromptBuilder {
                 + "### 1. Executive Summary\n"
                 + "Two to three sentences: overall outcome, total requests + error rate, single most critical finding.\n\n"
 
-                + "### 2. Overall Performance Assessment\n"
-                + "Brief table of key metrics. Flag any that breach:\n"
-                + "- Avg RT > " + (int) THRESHOLD_AVG_MS + " ms\n"
-                + "- Median RT > 1,500 ms\n"
-                + "- " + percentile + "th Pct > " + (int) THRESHOLD_PCT_MS + " ms\n"
-                + "- Error Rate > " + THRESHOLD_ERROR_PCT + "%\n"
-                + "- Std Dev > 50% of Avg (high variability)\n\n"
+                + "### 2. Bottleneck Analysis\n"
+                + "Identify the primary performance bottleneck(s) using the data below. "
+                + "Present a brief metric table, then diagnose *where* the constraint lies:\n"
+                + "- **Response-time shape:** compare avg vs median vs " + percentile + "th-pct to detect "
+                + "long-tail latency (skewed distribution → backend or GC pauses) vs uniform slowness "
+                + "(infrastructure or network layer).\n"
+                + "- **Variability signal:** stdDev > 50% of avg indicates unstable processing — "
+                + "flag as connection-pool contention, GC pressure, or inconsistent backend load.\n"
+                + "- **Throughput wall:** if TPS is low relative to virtual-user count, "
+                + "suspect thread saturation, upstream queue depth, or bandwidth ceiling.\n"
+                + "- **Web diagnostic signals:** high max RT with low avg → TCP retransmit or DNS delay; "
+                + "rising error rate under load → connection pool exhaustion or upstream 5xx cascade; "
+                + "bandwidth saturation → check `receivedBandwidthKBps` against known network limits.\n"
+                + "- **Chart-inferred trends:** use min/max/stdDev spread to infer whether "
+                + "degradation was steady-state, ramp-triggered, or a sudden spike.\n"
+                + "Flag any global metric that breaches: Avg RT > " + (int) THRESHOLD_AVG_MS + " ms | "
+                + "Median RT > 1,500 ms | " + percentile + "th Pct > " + (int) THRESHOLD_PCT_MS + " ms | "
+                + "Error Rate > " + THRESHOLD_ERROR_PCT + "% | Std Dev/Avg > 0.5\n\n"
 
                 + "### 3. Anomaly Highlights\n"
                 + "Use `anomalyTransactions`. If empty, state all transactions performed within thresholds. "
@@ -247,7 +263,10 @@ public class PromptBuilder {
 
                 + "### 5. Throughput & Capacity Assessment\n"
                 + "Use `globalStats.throughputTPS` and `globalStats.receivedBandwidthKBps`. "
-                + "Assess adequacy and capacity headroom.\n\n"
+                + "Assess adequacy and capacity headroom. Cross-reference bandwidth against "
+                + "typical network limits to identify potential saturation. "
+                + "Note whether throughput remains stable or shows signs of a capacity ceiling "
+                + "that would appear as a plateau in a throughput-over-time chart.\n\n"
 
                 + "### 6. Recommendations\n"
                 + "5 actionable, prioritised recommendations. Each must reference a measured metric value "
