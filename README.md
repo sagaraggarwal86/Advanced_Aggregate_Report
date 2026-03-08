@@ -26,7 +26,7 @@
 1. Build the JAR (see [Building from Source](#️-building-from-source)) or download from Releases
 2. Copy it to your JMeter `lib/ext/` directory:
    ```
-   <JMETER_HOME>/lib/ext/Configurable_Aggregate_Report-1.1.0.jar
+   <JMETER_HOME>/lib/ext/Configurable_Aggregate_Report-2.0.0.jar
    ```
 3. Restart JMeter
 
@@ -181,12 +181,12 @@ cd Configurable_Aggregate_Report
 mvn clean package
 ```
 
-The JAR is built to `target/Configurable_Aggregate_Report-1.1.0.jar`.
+The JAR is built to `target/Configurable_Aggregate_Report-2.0.0.jar`.
 
 **Deploy to JMeter:**
 
 ```bash
-cp target/Configurable_Aggregate_Report-1.1.0.jar $JMETER_HOME/lib/ext/
+cp target/Configurable_Aggregate_Report-2.0.0.jar $JMETER_HOME/lib/ext/
 ```
 
 **Run standalone preview (no JMeter needed):**
