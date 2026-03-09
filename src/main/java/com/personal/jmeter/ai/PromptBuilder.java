@@ -9,17 +9,18 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 
 /**
- * Builds the AI analysis prompt from already-aggregated JMeter results.
+ * Builds the two-part AI analysis prompt from already-aggregated JMeter results.
  *
- * <p><b>Summary-first strategy:</b> the AI receives global (TOTAL-row) statistics
- * and only the transactions that breach a threshold. Full per-transaction detail
- * is rendered in the separate "Transaction Metrics" table — the AI is not asked
- * to narrate every row.</p>
+ * <p><b>Standard 21 PromptBuilder contract:</b> {@link #build} returns a
+ * {@link PromptContent} containing a static {@code role:"system"} message
+ * (the analytical framework with Layers 1–5 and eight mandatory report sections)
+ * and a dynamic {@code role:"user"} message containing runtime test data with
+ * all Standard 21 placeholders substituted.</p>
  *
- * <h3>JSON sections sent to the AI</h3>
+ * <h3>JSON sections sent in the user message</h3>
  * <ul>
  *   <li>{@code globalStats}         — TOTAL-row KPIs</li>
- *   <li>{@code anomalyTransactions} — transactions that breach at least one threshold</li>
+ *   <li>{@code anomalyTransactions} — transactions breaching at least one threshold</li>
  *   <li>{@code errorEndpoints}      — transactions with any errors</li>
  *   <li>{@code slowestEndpoints}    — top-5 by Nth-percentile (label + value only)</li>
  * </ul>
@@ -39,29 +40,77 @@ public class PromptBuilder {
     private static final double THRESHOLD_STD_DEV_RATIO = 0.5;
 
     /**
-     * Prefix prepended to every generated prompt.
+     * Static system prompt — Standard 21 analytical framework with Layers 1–5
+     * and the eight mandatory report sections.
+     * The system prompt is passed as {@code role:"system"} in the Groq request.
      */
-    private static final String PROMPT_PREFIX =
-            "You are a senior performance engineer specialising in bottleneck analysis and "
-                    + "web diagnostics. Analyse the JMeter load test results below and write a concise "
-                    + "professional report. Where response-time trends would normally be visible in a "
-                    + "performance chart (e.g. ramp-up latency spikes, throughput plateaus, sustained "
-                    + "degradation), infer those patterns from the statistical data provided "
-                    + "(avg, median, stdDev, min/max). Apply web-performance diagnostic reasoning: "
-                    + "consider DNS/TCP/TLS overhead, connection pool exhaustion, backend processing "
-                    + "time, and network bandwidth saturation as candidate root causes when interpreting "
-                    + "slow or variable endpoints.\n\n";
+    private static final String SYSTEM_PROMPT =
+            "You are a senior performance engineer and JMeter specialist conducting\n"
+            + "a deep, multi-dimensional load test analysis using a layered decision strategy.\n"
+            + "Your analysis must be structured, evidence-based, data-driven, and actionable.\n\n"
+            + "Apply the following analytical layers in strict sequence:\n\n"
+            + "  Layer 1 — Statistical Triage\n"
+            + "    Identify outliers by error rate and 90th-percentile response time.\n"
+            + "    Flag any transaction breaching the stated error threshold.\n\n"
+            + "  Layer 2 — Bottleneck Isolation\n"
+            + "    Rank all transactions by degradation severity.\n"
+            + "    Determine whether bottlenecks are throughput-bound, latency-bound, or error-bound.\n\n"
+            + "  Layer 3 — Root Cause Classification\n"
+            + "    Correlate metrics to likely infrastructure, application, or network causes.\n"
+            + "    Reference specific data values from the input — never assert without evidence.\n\n"
+            + "  Layer 4 — Advanced Web Diagnostics\n"
+            + "    Where JTL data includes connect time, latency, and idle time fields,\n"
+            + "    decompose the response time into:\n"
+            + "      - DNS resolution estimate\n"
+            + "      - TCP connection time  (Connect field)\n"
+            + "      - TLS handshake time   (where HTTPS is used)\n"
+            + "      - Time to first byte   (Latency minus Connect)\n"
+            + "      - Response body transfer time  (Elapsed minus Latency)\n"
+            + "    Present findings as a per-transaction Markdown table where data is available.\n\n"
+            + "  Layer 5 — Recommendations\n"
+            + "    Prioritise fixes by business impact and engineering effort.\n\n"
+            + "Your report MUST contain ALL of the following sections. Never omit a section.\n"
+            + "Never summarise without citing specific numeric values from the input data.\n\n"
+            + "## Executive Summary\n"
+            + "  Pass/fail verdict with the specific metric and threshold that determined it.\n"
+            + "  Maximum 3 sentences.\n\n"
+            + "## Bottleneck Analysis\n"
+            + "  A Markdown table with ALL of the following columns:\n"
+            + "  | Transaction | Samples | Avg (ms) | 90th% (ms) | 99th% (ms) | Error% | Req/sec |\n"
+            + "  Below the table: identify the single worst bottleneck, cross-reference it\n"
+            + "  against raw JTL data patterns noted in the input (sample count trends,\n"
+            + "  error clustering, throughput drops), and explain its most likely root cause.\n\n"
+            + "## Error Analysis\n"
+            + "  HTTP error code distribution as a Markdown table:\n"
+            + "  | Transaction | Error Code | Count | % of Total Errors |\n"
+            + "  Flag every transaction exceeding the stated error threshold.\n"
+            + "  If no errors exist, state \"No errors recorded\" — do not omit the section.\n\n"
+            + "## Advanced Web Diagnostics\n"
+            + "  Per-transaction timing decomposition table (where JTL fields permit):\n"
+            + "  | Transaction | Connect (ms) | TTFB (ms) | Transfer (ms) | Total (ms) |\n"
+            + "  Interpret the dominant time phase for the worst-performing transactions.\n\n"
+            + "## Chart References\n"
+            + "  List the charts that should be generated to visualise these findings.\n"
+            + "  For each chart specify: chart type, metric on Y-axis, time/transactions on X-axis.\n"
+            + "  Required candidates:\n"
+            + "    - Response Time Over Time     (flag which transactions)\n"
+            + "    - Throughput Over Time\n"
+            + "    - Error Rate Over Time\n"
+            + "    - Percentile Distribution     (if p90/p99 gap exceeds 2x)\n"
+            + "    - Active Threads Over Time    (if thread ramp data is available)\n\n"
+            + "## Root Cause Hypotheses\n"
+            + "  Numbered list, ranked most-likely first.\n"
+            + "  Each hypothesis must cite at least one specific data value as evidence.\n\n"
+            + "## Recommendations\n"
+            + "  | Priority | Action | Expected Impact | Estimated Effort |\n"
+            + "  At minimum 3 recommendations. At most 7.\n\n"
+            + "## Verdict\n"
+            + "  Single sentence: PASS or FAIL — state the exact metric and threshold value\n"
+            + "  that determined the result.\n\n"
+            + "Format in Markdown. Use tables for metrics. Be concise.";
 
     // ─────────────────────────────────────────────────────────────
     // Public API
-    // ─────────────────────────────────────────────────────────────
-
-    private static boolean notBlank(String s) {
-        return s != null && !s.isBlank();
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // JSON summary
     // ─────────────────────────────────────────────────────────────
 
     private static double round2(double value) {
@@ -80,28 +129,51 @@ public class PromptBuilder {
     }
 
     /**
-     * Builds the AI analysis prompt from aggregated JMeter results.
+     * Builds the two-part AI analysis prompt from aggregated JMeter results.
+     *
+     * <p>SIGNATURE-CHANGE: return type changed from {@code String} to
+     * {@link PromptContent} — required to implement the Standard 21 system/user
+     * message split. Caller updated: {@code AiReportCoordinator.buildPrompt()}.</p>
      *
      * @param results    per-label aggregated statistics; must not be null
      * @param percentile percentile to report (1–99)
      * @param request    scenario context (users, name, description, timing); must not be null
-     * @return fully assembled prompt string suitable for the Groq API
+     * @return {@link PromptContent} with system prompt and user message suitable for Groq API
      */
-    public String build(Map<String, SamplingStatCalculator> results,
-                        int percentile,
-                        PromptRequest request) {
+    public PromptContent build(Map<String, SamplingStatCalculator> results,
+                               int percentile,
+                               PromptRequest request) {
         Objects.requireNonNull(results, "results must not be null");
         Objects.requireNonNull(request, "request must not be null");
         log.info("build: building prompt. labels={}, percentile={}", results.size(), percentile);
 
-        String json = GSON.toJson(buildSummary(results, percentile));
-        String context = buildContextBlock(request);
-
-        return PROMPT_PREFIX
-                + "## Test Context\n" + context + "\n\n"
-                + "## Test Data Summary (JSON)\n" + json + "\n\n"
-                + buildReportStructureInstructions(percentile);
+        String userMessage = buildUserMessage(results, percentile, request);
+        return new PromptContent(SYSTEM_PROMPT, userMessage);
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // User message assembly (Standard 21 dynamic substitution)
+    // ─────────────────────────────────────────────────────────────
+
+    private String buildUserMessage(Map<String, SamplingStatCalculator> results,
+                                    int percentile, PromptRequest request) {
+        String json = GSON.toJson(buildSummary(results, percentile));
+        return "Scenario    : " + orNotProvided(request.scenarioName()) + "\n"
+                + "Description : " + orNotProvided(request.scenarioDesc()) + "\n"
+                + "Users       : " + orNotProvided(request.users()) + "\n"
+                + "Duration    : " + orNotProvided(request.duration()) + "\n"
+                + "Start Time  : " + orNotProvided(request.startTime()) + "\n"
+                + "Error Threshold: " + THRESHOLD_ERROR_PCT + "%\n\n"
+                + "Global Statistics (JSON):\n" + json;
+    }
+
+    private static String orNotProvided(String value) {
+        return (value == null || value.isBlank()) ? "Not provided" : value.trim();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // JSON summary
+    // ─────────────────────────────────────────────────────────────
 
     private Map<String, Object> buildSummary(Map<String, SamplingStatCalculator> results,
                                              int percentile) {
@@ -183,10 +255,6 @@ public class PromptBuilder {
         return anomalies;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Context block
-    // ─────────────────────────────────────────────────────────────
-
     private List<String> buildBreachList(double avg, double pVal, double errPct,
                                          double stdDev, int percentile) {
         List<String> breaches = new ArrayList<>();
@@ -197,10 +265,6 @@ public class PromptBuilder {
             breaches.add("highVariability (stdDev/avg=" + round2(stdDev / avg) + ")");
         return breaches;
     }
-
-    // ─────────────────────────────────────────────────────────────
-    // Report structure instructions
-    // ─────────────────────────────────────────────────────────────
 
     private List<Map<String, Object>> buildErrorEndpointList(
             Map<String, SamplingStatCalculator> results) {
@@ -247,53 +311,5 @@ public class PromptBuilder {
             top.add(e.getKey() + " (" + round2(e.getValue()) + " ms)");
         }
         return top;
-    }
-
-    private String buildContextBlock(PromptRequest request) {
-        List<String> parts = new ArrayList<>();
-        if (notBlank(request.scenarioName())) parts.add("Scenario: " + request.scenarioName().trim());
-        if (notBlank(request.users())) parts.add("Virtual Users: " + request.users().trim());
-        if (notBlank(request.startTime())) parts.add("Start Time: " + request.startTime().trim());
-        if (notBlank(request.duration())) parts.add("Duration: " + request.duration().trim());
-        if (notBlank(request.scenarioDesc())) parts.add("Description: " + request.scenarioDesc().trim());
-        return parts.isEmpty() ? "Not provided." : String.join("  |  ", parts);
-    }
-
-    private String buildReportStructureInstructions(int percentile) {
-        return "## Report Structure Required\n\n"
-                + "**Golden rule:** Write at the OVERALL SYSTEM level using `globalStats`. "
-                + "Only mention a specific transaction by name if it appears in "
-                + "`anomalyTransactions` or `errorEndpoints`. "
-                + "Do not narrate or summarise every individual transaction. "
-                + "Do not invent or assume values not present in the JSON.\n\n"
-                + "The detailed transaction-level table is already rendered separately in the report "
-                + "and does not need to be reproduced here.\n\n"
-                + "### 1. Executive Summary\n"
-                + "Two to three sentences: overall outcome, total requests + error rate, single most critical finding.\n\n"
-                + "### 2. Bottleneck Analysis\n"
-                + "Identify the primary performance bottleneck(s) using the data below. "
-                + "Present a brief metric table, then diagnose *where* the constraint lies:\n"
-                + "- **Response-time shape:** compare avg vs median vs " + percentile + "th-pct.\n"
-                + "- **Variability signal:** stdDev > 50% of avg indicates unstable processing.\n"
-                + "- **Throughput wall:** if TPS is low relative to virtual-user count, suspect saturation.\n"
-                + "- **Web diagnostic signals:** high max RT with low avg → TCP retransmit or DNS delay.\n"
-                + "Flag any global metric breaching: Avg RT > " + (int) THRESHOLD_AVG_MS + " ms | "
-                + "Median RT > 1,500 ms | " + percentile + "th Pct > " + (int) THRESHOLD_PCT_MS
-                + " ms | Error Rate > " + THRESHOLD_ERROR_PCT + "% | Std Dev/Avg > 0.5\n\n"
-                + "### 3. Anomaly Highlights\n"
-                + "Use `anomalyTransactions`. If empty, state all transactions performed within thresholds. "
-                + "Otherwise, for each anomaly: name it, state breached thresholds, give a brief root-cause.\n\n"
-                + "### 4. Error Analysis\n"
-                + "Use `errorEndpoints`. If empty, state the test ran error-free. "
-                + "Otherwise classify as timeout / 4xx / 5xx / connection failure.\n\n"
-                + "### 5. Throughput & Capacity Assessment\n"
-                + "Use `globalStats.throughputTPS` and `globalStats.receivedBandwidthKBps`. "
-                + "Assess adequacy and capacity headroom.\n\n"
-                + "### 6. Recommendations\n"
-                + "5 actionable, prioritised recommendations. Each must reference a measured metric value "
-                + "and suggest a concrete fix.\n\n"
-                + "### 7. Verdict\n"
-                + "State **PASS**, **CONDITIONAL PASS**, or **FAIL** with exactly 3 supporting metric values.\n\n"
-                + "Format in Markdown. Use tables for metrics. Be concise.\n";
     }
 }

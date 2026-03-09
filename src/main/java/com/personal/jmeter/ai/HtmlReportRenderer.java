@@ -8,8 +8,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -53,6 +55,13 @@ public class HtmlReportRenderer {
     };
     private static final Logger log = LoggerFactory.getLogger(HtmlReportRenderer.class);
     private static final String TD_CLOSE = "</td>";
+
+    /**
+     * Minimum free disk space required before writing a report.
+     * 10 MB is a conservative floor sized to accommodate typical JMeter report
+     * output (50–200 KB) with ample headroom.
+     */
+    private static final long MIN_FREE_BYTES = 10L * 1024 * 1024; // 10 MB
 
     private static String buildRunDateTime(String startTime, String endTime) {
         boolean hasStart = startTime != null && !startTime.isBlank();
@@ -289,7 +298,7 @@ public class HtmlReportRenderer {
 
     private static String deriveOutputPath(String jtlFilePath, String scenarioName,
                                            String threadGroupName) {
-        String dir = Path.of(jtlFilePath).toAbsolutePath().getParent().toString();
+        Path parentDir = Path.of(jtlFilePath).toAbsolutePath().getParent();
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
         String planPart = sanitizeSegment(scenarioName);
         String tgPart = sanitizeSegment(threadGroupName);
@@ -299,7 +308,7 @@ public class HtmlReportRenderer {
         if (!tgPart.isEmpty()) name.append('_').append(tgPart);
         name.append('_').append(timestamp).append(".html");
 
-        return dir + java.io.File.separator + name;
+        return parentDir.resolve(name.toString()).toString();
     }
 
     private static String sanitizeSegment(String raw) {
@@ -312,6 +321,10 @@ public class HtmlReportRenderer {
 
     /**
      * Renders the full AI report to an HTML file on disk.
+     *
+     * <p>Uses an atomic write pattern: disk-space check → write to sibling {@code .tmp} →
+     * atomic rename → guaranteed {@code .tmp} cleanup in {@code finally}.
+     * This ensures no partial file is left on disk if the write or rename fails.</p>
      *
      * @param markdownContent AI-generated report in Markdown; must not be null
      * @param jtlFilePath     path to the source JTL file (output placed next to it); must not be null
@@ -338,9 +351,57 @@ public class HtmlReportRenderer {
         String page = buildPage(htmlBody, metricsTable, chartsBlock, config);
 
         String outPath = deriveOutputPath(jtlFilePath, config.scenarioName, config.threadGroupName);
-        Files.writeString(Path.of(outPath), page, StandardCharsets.UTF_8);
+        writeReport(page, Path.of(outPath));
         log.info("render: HTML report written. outPath={}", outPath);
         return outPath;
+    }
+
+    /**
+     * Writes {@code content} to {@code finalPath} using the mandatory atomic-write pattern:
+     * disk-space check → write to sibling {@code .tmp} → ATOMIC_MOVE to final path
+     * → guaranteed {@code .tmp} cleanup in {@code finally}.
+     *
+     * @param content   the HTML content to write; must not be null
+     * @param finalPath the destination path (parent directory must be determinable)
+     * @throws IOException if disk space is insufficient or the write/rename fails
+     */
+    private void writeReport(String content, Path finalPath) throws IOException {
+        // Step 1: null-safe parent resolution
+        Path parentDir = Objects.requireNonNull(
+                finalPath.toAbsolutePath().getParent(),
+                "finalPath must include a parent directory: " + finalPath);
+
+        // Step 2: ensure parent directory exists, then check disk space.
+        // Files.getFileStore() throws NoSuchFileException if parentDir does not exist —
+        // createDirectories() is required BEFORE the space check, not after.
+        Files.createDirectories(parentDir);
+        long usable = Files.getFileStore(parentDir).getUsableSpace();
+        if (usable < MIN_FREE_BYTES) {
+            throw new IOException(String.format(
+                    "Insufficient disk space — %.1f MB available, 10 MB required on %s",
+                    usable / (1024.0 * 1024.0), parentDir));
+        }
+
+        // Step 3: write to sibling .tmp — same filesystem as finalPath, required for ATOMIC_MOVE
+        Path tmpPath = finalPath.resolveSibling(finalPath.getFileName() + ".tmp");
+        try {
+            Files.writeString(tmpPath, content, StandardCharsets.UTF_8);
+
+            // Step 4: atomic rename to final path
+            try {
+                Files.move(tmpPath, finalPath, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                // DESIGN: tmpPath and finalPath are siblings (same directory, same volume),
+                // so cross-volume is not the issue here. ATOMIC_MOVE can still fail on
+                // non-NTFS filesystems (FAT32, exFAT), network/CIFS shares, or some
+                // containerised volumes that do not support atomic rename at the OS level.
+                // REPLACE_EXISTING is non-atomic but safe for single-JVM use in these cases.
+                Files.move(tmpPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            // Step 5: always delete .tmp — whether write succeeded, rename succeeded, or both failed.
+            Files.deleteIfExists(tmpPath);
+        }
     }
 
     /**
