@@ -99,7 +99,7 @@ public class AiReportCoordinator {
                                JButton triggerBtn) {
         try {
             setProgress(progressLabel, "Building analysis prompt...");
-            String prompt = buildPrompt(ctx);
+            PromptContent prompt = buildPrompt(ctx);
 
             setProgress(progressLabel, "Calling Groq AI (this may take ~30 seconds)...");
             String markdown = aiService.generateReport(prompt);
@@ -115,7 +115,7 @@ public class AiReportCoordinator {
         }
     }
 
-    private String buildPrompt(ReportContext ctx) {
+    private PromptContent buildPrompt(ReportContext ctx) {
         PromptRequest request = new PromptRequest(
                 ctx.config.users, ctx.config.scenarioName, ctx.config.scenarioDesc,
                 ctx.config.startTime, ctx.duration);

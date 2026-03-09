@@ -17,7 +17,7 @@
 | 🕐 **Test Time Info**          | Start Date/Time, End Date/Time, and total Duration shown automatically                            |
 | 🔀 **Sortable Columns**        | Click any column header to sort ascending; click again for descending                             |
 | 💾 **CSV Export**              | Save all visible columns to a CSV file with one click                                             |
-| 🤖 **AI Performance Report**   | Generate a styled HTML report with bottleneck analysis and performance charts, powered by Groq AI |
+| 🤖 **AI Performance Report**   | Generate a styled HTML report with deep-dive bottleneck, error, and web diagnostics analysis, powered by Groq AI |
 | 🚫 **No Live Metrics**         | Designed for post-test JTL analysis — no runtime overhead                                         |
 
 ---
@@ -29,11 +29,11 @@
 1. Download the latest JAR from
    the [GitHub Releases](https://github.com/sagaraggarwal86/Configurable_Aggregate_Report/releases) page or click here
    to download
-   instantly [latest JAR](https://github.com/sagaraggarwal86/Configurable_Aggregate_Report/releases/download/v2.1.0/Configurable_Aggregate_Report-2.1.0.jar)
+   instantly [latest JAR](https://github.com/sagaraggarwal86/Configurable_Aggregate_Report/releases/download/v2.1.0/Configurable_Aggregate_Report-2.5.0.jar)
 
 3. Copy it to your JMeter `lib/ext/` directory:
    ```
-   <JMETER_HOME>/lib/ext/Configurable_Aggregate_Report-2.1.0.jar
+   <JMETER_HOME>/lib/ext/Configurable_Aggregate_Report-2.5.0.jar
    ```
 4. Restart JMeter
 
@@ -45,8 +45,13 @@
 git clone https://github.com/sagaraggarwal86/Configurable_Aggregate_Report.git
 cd Configurable_Aggregate_Report
 mvn clean package
-cp target/Configurable_Aggregate_Report-2.1.0.jar $JMETER_HOME/lib/ext/
+cp target/Configurable_Aggregate_Report-2.5.0.jar $JMETER_HOME/lib/ext/
 ```
+
+> **Publishing to Maven Central** requires the `release` profile (sources JAR, Javadoc JAR, GPG signing):
+> ```bash
+> mvn deploy -P release
+> ```
 
 ---
 
@@ -169,17 +174,17 @@ self-contained, styled HTML file saved next to your JTL file.
 
 ### What the Report Contains
 
-| Section                       | Description                                                                                                 |
-|-------------------------------|-------------------------------------------------------------------------------------------------------------|
-| **Executive Summary**         | Overall outcome, total requests, error rate, and top finding in 2–3 sentences                               |
-| **Bottleneck Analysis**       | Identifies where the performance constraint lies — backend, network, or infrastructure                      |
-| **Anomaly Highlights**        | Transactions that breached response-time or error-rate thresholds, with a root-cause note                   |
-| **Error Analysis**            | Errors classified by type: timeout, 4xx, 5xx, or connection failure                                         |
-| **Throughput & Capacity**     | TPS and bandwidth assessed against capacity signals                                                         |
-| **Recommendations**           | Five prioritised, metric-backed fixes                                                                       |
-| **Verdict**                   | PASS, CONDITIONAL PASS, or FAIL — with three supporting metric values                                       |
-| **Transaction Metrics Table** | Full per-transaction breakdown matching the plugin table                                                    |
-| **Performance Charts**        | Four time-series charts: Average Response Time, Error Rate, Throughput, and Bandwidth (30-second intervals) |
+| Section                       | Description                                                                                                        |
+|-------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| **Executive Summary**         | End-to-end narrative paragraph: scenario context, system behaviour under load, dominant constraint, PASS/FAIL verdict, and highest-priority action |
+| **Bottleneck Analysis**       | Technical interpretation of throughput, latency, and error pattern cross-correlated into a single bottleneck classification (throughput-bound, latency-bound, or error-bound), followed by a supporting metrics table |
+| **Error Analysis**            | Error pattern characterisation (load-correlated surge vs. systemic defect), threshold breach verdict, and operational impact assessment, followed by a pass/fail accounting table |
+| **Advanced Web Diagnostics**  | Response time decomposed into network establishment, server processing, and transfer phases with ms and % values; dominant phase identified with remediation focus, followed by a phase breakdown table |
+| **Root Cause Hypotheses**     | Ranked list of system-level hypotheses, each citing a specific metric value and naming the implicated component layer |
+| **Recommendations**           | Prioritised action table (3–7 items) derived directly from the analysis findings                                   |
+| **Verdict**                   | Single PASS or FAIL sentence anchored to the decisive aggregate metric and threshold value                         |
+| **Transaction Metrics Table** | Full per-transaction breakdown matching the plugin table                                                            |
+| **Performance Charts**        | Four time-series charts: Average Response Time, Error Rate, Throughput, and Bandwidth (30-second intervals)        |
 
 ### API Key Setup
 
@@ -187,10 +192,10 @@ Set the Groq API key in your environment before starting JMeter:
 
 ```bash
 # macOS / Linux
-export Groq_APIKEY=your-key-here
+export GROQ_API_KEY=your-key-here
 
 # Windows (PowerShell)
-$env:Groq_APIKEY = "your-key-here"
+$env:GROQ_API_KEY = "your-key-here"
 ```
 
 ---
