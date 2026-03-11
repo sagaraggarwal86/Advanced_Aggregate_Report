@@ -86,7 +86,11 @@ final class CsvExporter {
     private void saveTableToCSV(File file) throws IOException {
         List<Integer> visibleCols = getVisibleColumnModelIndices();
         try (BufferedWriter writer = new BufferedWriter(
-                new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8))) {
+                new OutputStreamWriter(
+                        java.nio.file.Files.newOutputStream(file.toPath(),
+                                java.nio.file.StandardOpenOption.CREATE,
+                                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING),
+                        StandardCharsets.UTF_8))) {
             StringBuilder header = new StringBuilder();
             for (int i = 0; i < visibleCols.size(); i++) {
                 if (i > 0) header.append(',');

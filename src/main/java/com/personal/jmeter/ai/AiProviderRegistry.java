@@ -8,7 +8,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -101,10 +100,6 @@ public final class AiProviderRegistry {
     // ── Ping cache: providerKey → true (only successful pings are cached) ──
     private static final ConcurrentHashMap<String, Boolean> PING_CACHE =
             new ConcurrentHashMap<>();
-
-    private static final HttpClient PING_CLIENT = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
 
     // ── Singleton prevention ───────────────────────────────────────────────
     private AiProviderRegistry() {}
@@ -347,7 +342,7 @@ public final class AiProviderRegistry {
 
         try {
             HttpResponse<String> response =
-                    PING_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+                    SharedHttpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
             int status = response.statusCode();
             log.debug("executePing: provider={} status={}", config.providerKey, status);
 
@@ -362,12 +357,16 @@ public final class AiProviderRegistry {
             Thread.currentThread().interrupt();
             PING_CACHE.remove(config.providerKey);
             return "Connection to " + config.displayName + " was interrupted. Please try again.";
-        } catch (Exception e) {
+        } catch (IOException e) {
             PING_CACHE.remove(config.providerKey);
             log.warn("executePing: network error for provider={}. reason={}", config.providerKey, e.getMessage());
             return "Could not connect to " + config.displayName + ".\n\n"
                     + "Please check your network connection and that the base URL is correct:\n"
                     + "  " + config.baseUrl;
+        } catch (RuntimeException e) {
+            PING_CACHE.remove(config.providerKey);
+            log.error("executePing: unexpected runtime error for provider={}. reason={}", config.providerKey, e.getMessage(), e);
+            throw e;
         }
     }
 

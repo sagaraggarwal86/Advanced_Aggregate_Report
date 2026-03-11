@@ -38,17 +38,9 @@ public class AiReportService {
     /** Total number of attempts (1 initial + 2 retries). */
     private static final int MAX_ATTEMPTS = 3;
 
-    /** Minimum delay in milliseconds between retry attempts. */
-    private static final long RETRY_DELAY_MS = 2_000L;
-
     /**
-     * Long-lived singleton — reusing one client allows connection pooling and
-     * avoids the overhead of a new TLS handshake per request.
-     * Connect timeout is a fixed generous value; per-request timeout comes from config.
-     */
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(30))
-            .build();
+     * Minimum delay in milliseconds between retry attempts. */
+    private static final long RETRY_DELAY_MS = 2_000L;
 
     private final AiProviderConfig config;
 
@@ -125,7 +117,7 @@ public class AiReportService {
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
         try {
-            return HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            return SharedHttpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("sendRequest: request interrupted. provider={} reason={}",
