@@ -179,6 +179,33 @@ public class AggregateReportPanel extends JPanel {
     // ─────────────────────────────────────────────────────────────
 
     /**
+     * Parses and displays the given JTL file without resetting SLA fields.
+     * Used exclusively by {@link com.personal.jmeter.listener.ListenerGUI#configure}
+     * during state restoration — SLA and chart interval fields are already restored
+     * from the TestElement before this is called, so they must not be wiped.
+     *
+     * @param filePath path to the JTL file
+     */
+    void loadJtlFileForRestore(String filePath) {
+        lastLoadedFilePath = filePath;
+        try {
+            JTLParser.FilterOptions opts = buildFilterOptions();
+            JTLParser.ParseResult result = new JTLParser().parse(filePath, opts);
+            cachedResults          = result.results;
+            cachedBuckets          = result.timeBuckets;
+            cachedErrorTypeSummary = result.errorTypeSummary;
+            cachedAvgLatencyMs     = result.avgLatencyMs;
+            cachedAvgConnectMs     = result.avgConnectMs;
+            cachedLatencyPresent   = result.latencyPresent;
+            repopulate(opts.percentile);
+            updateTimeInfo(result);
+        } catch (IOException e) {
+            log.error("loadJtlFileForRestore: parse failed. filePath={}, reason={}",
+                    filePath, e.getMessage(), e);
+        }
+    }
+
+    /**
      * Parses and displays the given JTL file. Shows an error dialog on failure.
      * Resets all SLA fields and highlighting before loading new data.
      *
@@ -294,6 +321,74 @@ public class AggregateReportPanel extends JPanel {
     /** @param v value; null or blank resets to "90" */
     public void   setPercentile(String v) { percentileField.setText((v == null || v.isBlank()) ? "90" : v); }
 
+    /** @return error % SLA field text */
+    public String getErrorPctSla()        { return errorPctSlaField.getText().trim(); }
+    /** @param v value; null treated as empty string */
+    public void   setErrorPctSla(String v){ errorPctSlaField.setText(Objects.requireNonNullElse(v, "")); }
+
+    /** @return RT threshold SLA field text */
+    public String getRtThresholdSla()        { return rtThresholdSlaField.getText().trim(); }
+    /** @param v value; null treated as empty string */
+    public void   setRtThresholdSla(String v){ rtThresholdSlaField.setText(Objects.requireNonNullElse(v, "")); }
+
+    /** @return RT metric combo selected index (0 = Avg, 1 = Pnn) */
+    public int  getRtMetricIndex()       { return rtMetricCombo.getSelectedIndex(); }
+    /** @param i index to select; out-of-range defaults to 1 */
+    public void setRtMetricIndex(int i)  { rtMetricCombo.setSelectedIndex((i == 0) ? 0 : 1); }
+
+    /** @return chart interval field text */
+    public String getChartInterval()        { return chartIntervalField.getText().trim(); }
+    /** @param v value; null treated as "0" */
+    public void   setChartInterval(String v){ chartIntervalField.setText((v == null || v.isBlank()) ? "0" : v); }
+
+    /** @return transaction search field text */
+    public String getSearch()        { return transactionSearchField.getText().trim(); }
+    /** @param v value; null treated as empty string */
+    public void   setSearch(String v){ transactionSearchField.setText(Objects.requireNonNullElse(v, "")); }
+
+    /** @return regex checkbox state */
+    public boolean isRegex()           { return regexCheckBox.isSelected(); }
+    /** @param v state to set */
+    public void    setRegex(boolean v) { regexCheckBox.setSelected(v); }
+
+    /** @return the last loaded JTL file path, or {@code null} if none loaded */
+    public String getLastLoadedFilePath() { return lastLoadedFilePath; }
+
+    /**
+     * Returns the column visibility state as a comma-separated boolean string.
+     * One value per column in {@link #ALL_COLUMNS} order,
+     * e.g. {@code "true,true,false,true,true,true,false,true,true,true,true"}.
+     *
+     * @return comma-separated visibility string; never null
+     */
+    public String getColumnVisibility() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < columnMenuItems.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(columnMenuItems[i].isSelected());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Restores column visibility from a comma-separated boolean string.
+     * Silently ignores malformed or mismatched strings.
+     *
+     * @param v comma-separated visibility string; null or blank = no-op
+     */
+    public void setColumnVisibility(String v) {
+        if (v == null || v.isBlank()) return;
+        String[] parts = v.split(",", -1);
+        if (parts.length != columnMenuItems.length) return;
+        for (int i = 1; i < parts.length; i++) { // col 0 is always visible — skip
+            boolean visible = Boolean.parseBoolean(parts[i].trim());
+            if (columnMenuItems[i].isSelected() != visible) {
+                columnMenuItems[i].setSelected(visible);
+                tablePopulator.toggleColumnVisibility(i, visible);
+            }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Package-private API (used by collaborators and tests)
     // ─────────────────────────────────────────────────────────────
@@ -379,7 +474,7 @@ public class AggregateReportPanel extends JPanel {
         aiBtn.setFont(FONT_REGULAR);
         aiBtn.setToolTipText(
                 "Analyse the loaded JTL data with AI and generate an HTML performance report");
-        aiBtn.addActionListener(e -> aiReportLauncher.launch(aiBtn));
+        aiBtn.addActionListener(e -> { refreshProviderCombo(); aiReportLauncher.launch(aiBtn); });
 
         // Vertical divider between AI button and chart interval
         JSeparator divider = new JSeparator(SwingConstants.VERTICAL);

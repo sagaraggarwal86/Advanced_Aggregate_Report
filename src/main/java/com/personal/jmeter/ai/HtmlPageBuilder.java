@@ -78,13 +78,30 @@ final class HtmlPageBuilder {
 
     /**
      * Builds the Performance Charts section from time buckets.
-     * Returns an empty string when {@code timeBuckets} is null or empty.
      *
-     * @param timeBuckets 30-second time buckets from the JTL parser
-     * @return HTML+JS string for the charts section
+     * <p>Always renders a charts section header — never silently omits it.
+     * When {@code timeBuckets} is null, empty, or contains fewer than two entries,
+     * a visible informational placeholder is rendered instead of blank canvas
+     * elements. This ensures the HTML report is structurally complete regardless
+     * of CLI flags (e.g. {@code --start-offset}) or test duration.</p>
+     *
+     * @param timeBuckets time buckets from the JTL parser (may be null or empty)
+     * @return HTML+JS string for the charts section; never an empty string
      */
     static String buildChartsSection(List<JTLParser.TimeBucket> timeBuckets) {
-        if (timeBuckets == null || timeBuckets.isEmpty()) return "";
+        if (timeBuckets == null || timeBuckets.isEmpty()) {
+            return buildChartsUnavailableSection(
+                    "No time-series data is available for this report. "
+                            + "This typically occurs when the test duration is shorter than the "
+                            + "chart bucket interval, or when --start-offset / --end-offset filters "
+                            + "exclude all samples. Try reducing --start-offset or running a longer test.");
+        }
+        if (timeBuckets.size() < 2) {
+            return buildChartsUnavailableSection(
+                    "Insufficient data for time-series charts — only one time bucket was captured. "
+                            + "Try reducing --start-offset, increasing --chart-interval, or ensuring "
+                            + "the test runs long enough to produce multiple data points.");
+        }
 
         DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss");
         List<String> jLabels = new ArrayList<>();
@@ -127,6 +144,21 @@ final class HtmlPageBuilder {
                 .append("  timeChart('chartKb',     ").append(kbArr) .append(", 'Bandwidth',         'KB/s',  'rgba(159,122,234,1)');\n")
                 .append("})();\n</script>\n")
                 .toString();
+    }
+
+    /**
+     * Renders a charts section placeholder when time-series data is unavailable.
+     *
+     * @param reason human-readable explanation shown in the report
+     * @return HTML string for the placeholder charts section
+     */
+    private static String buildChartsUnavailableSection(String reason) {
+        return "<div class=\"charts-section\">\n"
+                + "  <h2>Performance Charts Over Time</h2>\n"
+                + "  <p class=\"charts-note charts-unavailable\">"
+                + HtmlReportRenderer.escapeHtml(reason)
+                + "</p>\n"
+                + "</div>\n";
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -321,6 +353,9 @@ final class HtmlPageBuilder {
                 .append("    .metrics-section { margin: 40px 0 0; }\n")
                 .append("    .charts-section  { margin: 40px 0 0; }\n")
                 .append("    .charts-note { font-size: 12px; color: #718096; margin-bottom: 20px; }\n")
+                .append("    .charts-unavailable { background: #fffbeb; border: 1px solid #f6e05e;\n")
+                .append("                          border-radius: 6px; padding: 12px 16px;\n")
+                .append("                          color: #744210; font-size: 13px; }\n")
                 .append("    .chart-box { background: white; border-radius: 8px; padding: 20px 24px 16px;\n")
                 .append("                 box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 24px; }\n")
                 .append("    .chart-box h3 { font-size: 13px; font-weight: 600; color: #2d3748;\n")

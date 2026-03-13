@@ -368,7 +368,7 @@ public final class AiProviderRegistry {
                 return null;
             }
             PING_CACHE.remove(config.providerKey);
-            return buildPingErrorMessage(config, status);
+            return buildPingErrorMessage(config, status, response.body());
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -393,7 +393,7 @@ public final class AiProviderRegistry {
                 + "\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}";
     }
 
-    private static String buildPingErrorMessage(AiProviderConfig config, int status) {
+    private static String buildPingErrorMessage(AiProviderConfig config, int status, String responseBody) {
         if (status == 401) {
             return "The " + config.displayName + " API key was rejected (HTTP 401).\n\n"
                     + "The key may have expired or been revoked. Please update:\n"
@@ -405,8 +405,35 @@ public final class AiProviderRegistry {
                     + "Your account may lack permissions or have exceeded its quota.\n"
                     + "Please check your account at the provider's dashboard.";
         }
+        if (status == 404) {
+            return "Endpoint not found for " + config.displayName + " (HTTP 404).\n\n"
+                    + "The base URL may be misconfigured. Please verify:\n"
+                    + "  ai.reporter." + config.providerKey + ".base.url\n"
+                    + "in ai-reporter.properties.\n"
+                    + "Current URL: " + config.chatCompletionsUrl();
+        }
+        if (status == 429) {
+            return "Rate limit exceeded for " + config.displayName + " (HTTP 429).\n\n"
+                    + "Too many requests have been sent to the provider.\n"
+                    + "Please wait a moment and try again.";
+        }
+        if (status == 500) {
+            return "Internal server error from " + config.displayName + " (HTTP 500).\n\n"
+                    + "The provider encountered an unexpected error.\n"
+                    + "Please try again or check the provider's status page.";
+        }
+        if (status == 503) {
+            return "Service temporarily unavailable for " + config.displayName + " (HTTP 503).\n\n"
+                    + "The provider is currently unavailable.\n"
+                    + "Please try again later or check the provider's status page.";
+        }
+        if (status == 408 || status == 504) {
+            return "Request timed out for " + config.displayName + " (HTTP " + status + ").\n\n"
+                    + "The provider did not respond in time.\n"
+                    + "Please check your network connection and try again.";
+        }
         return "Unexpected response from " + config.displayName + " (HTTP " + status + ").\n\n"
-                + "Provider: " + config.providerKey + "\n"
-                + "URL: " + config.chatCompletionsUrl();
+                + "Provider: " + config.providerKey + "\n\n"
+                + "Response body:\n" + responseBody;
     }
 }

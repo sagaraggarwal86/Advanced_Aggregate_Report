@@ -4,14 +4,22 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import com.personal.jmeter.parser.JTLParser;
+
+import java.util.Collections;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link HtmlPageBuilder#convertPipeTablesToHtml}.
+ * Unit tests for {@link HtmlPageBuilder#convertPipeTablesToHtml}
+ * and {@link HtmlPageBuilder#buildChartsSection}.
  *
  * <p>No file system, no network, no Swing — pure in-memory verification of
  * the pipe-table pre-processor's branching: separator-row detection, multi-row
- * tables, cell escaping, and non-table lines pass-through.</p>
+ * tables, cell escaping, and non-table lines pass-through.
+ * Also verifies that {@code buildChartsSection} always renders a section header
+ * regardless of bucket count.</p>
  */
 @DisplayName("HtmlPageBuilder — convertPipeTablesToHtml")
 class HtmlPageBuilderTest {
@@ -162,6 +170,68 @@ class HtmlPageBuilderTest {
             assertTrue(result.contains("Before the table."));
             assertTrue(result.contains("<table>"));
             assertTrue(result.contains("After the table."));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // buildChartsSection — always renders a section
+    // ─────────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("buildChartsSection — always renders a section header")
+    class ChartsSectionTests {
+
+        @Test
+        @DisplayName("null input renders placeholder, not empty string")
+        void nullRendersPlaceholder() {
+            String result = HtmlPageBuilder.buildChartsSection(null);
+            assertFalse(result.isEmpty(), "Result must never be empty");
+            assertTrue(result.contains("<h2>Performance Charts Over Time</h2>"),
+                    "Section header must always be present");
+            assertTrue(result.contains("charts-unavailable"),
+                    "Placeholder CSS class must be applied");
+        }
+
+        @Test
+        @DisplayName("empty list renders placeholder, not empty string")
+        void emptyListRendersPlaceholder() {
+            String result = HtmlPageBuilder.buildChartsSection(Collections.emptyList());
+            assertFalse(result.isEmpty(), "Result must never be empty");
+            assertTrue(result.contains("<h2>Performance Charts Over Time</h2>"),
+                    "Section header must always be present");
+            assertTrue(result.contains("charts-unavailable"),
+                    "Placeholder CSS class must be applied");
+        }
+
+        @Test
+        @DisplayName("single bucket renders placeholder — insufficient for time-series")
+        void singleBucketRendersPlaceholder() {
+            JTLParser.TimeBucket bucket = new JTLParser.TimeBucket(
+                    System.currentTimeMillis(), 250.0, 2.5, 10.0, 50.0);
+            String result = HtmlPageBuilder.buildChartsSection(List.of(bucket));
+            assertFalse(result.isEmpty(), "Result must never be empty");
+            assertTrue(result.contains("charts-unavailable"),
+                    "Single-bucket result must use the placeholder");
+            assertFalse(result.contains("<canvas"),
+                    "Single bucket must not render Chart.js canvas elements");
+        }
+
+        @Test
+        @DisplayName("two or more buckets renders full Chart.js section")
+        void twoBucketsRendersCharts() {
+            long now = System.currentTimeMillis();
+            List<JTLParser.TimeBucket> buckets = List.of(
+                    new JTLParser.TimeBucket(now,          250.0, 0.0, 10.0, 50.0),
+                    new JTLParser.TimeBucket(now + 30_000, 300.0, 1.0, 12.0, 60.0));
+            String result = HtmlPageBuilder.buildChartsSection(buckets);
+            assertTrue(result.contains("<canvas"),
+                    "Two buckets must render Chart.js canvas elements");
+            assertFalse(result.contains("charts-unavailable"),
+                    "Full chart must not use the placeholder CSS class");
+            assertTrue(result.contains("chartAvgRt"),  "Avg RT chart must be present");
+            assertTrue(result.contains("chartErrPct"), "Error rate chart must be present");
+            assertTrue(result.contains("chartTps"),    "Throughput chart must be present");
+            assertTrue(result.contains("chartKb"),     "Bandwidth chart must be present");
         }
     }
 }

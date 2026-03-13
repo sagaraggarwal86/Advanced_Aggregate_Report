@@ -1,4 +1,4 @@
-# Configurable Aggregate Report — JMeter Plugin
+al# Configurable Aggregate Report — JMeter Plugin
 
 A file-based Apache JMeter listener plugin for post-test JTL analysis. Load a JTL file and get
 a filterable aggregate table, CSV export, and an AI-generated HTML performance report — with zero
@@ -17,6 +17,7 @@ runtime overhead.
 - [Filter Settings](#filter-settings)
 - [SLA Thresholds](#sla-thresholds)
 - [AI Performance Report](#ai-performance-report)
+- [Local LLM Support](#local-llm-support)
 - [CLI Mode](#cli-mode)
 - [CSV Export](#csv-export)
 - [Running Tests](#running-tests)
@@ -264,8 +265,8 @@ Set live SLA thresholds in the **SLA Thresholds** panel. Breaching cells are hig
 Click **Generate AI Report** to analyse the loaded JTL data with any supported AI provider.
 A save dialog lets you choose where to save the self-contained HTML report.
 
-**Supported providers:** Groq (free, **Recommended Option**), Gemini (free), Mistral (free), DeepSeek (free),
-OpenAI (paid), Claude (paid) — or any OpenAI-compatible endpoint.
+**Supported providers:** Groq (free, **Recommended**), Gemini (free), Mistral (free), DeepSeek (free),
+OpenAI (paid), Claude (paid), Ollama (local / free) — or any OpenAI-compatible endpoint.
 
 ### Report Contents
 
@@ -296,6 +297,51 @@ ai.reporter.deepseek.api.key=your-key-here
 ```
 
 Select the provider from the dropdown next to the **Generate AI Report** button.
+
+---
+
+## Local LLM Support
+
+The plugin supports **Ollama** — a local model runner — as a fully offline, free alternative to
+cloud AI providers. No API key, no internet connection required after model download.
+
+### Setup
+
+1. **Install Ollama** from [https://ollama.com](https://ollama.com) (Windows / macOS / Linux).
+   Ollama starts automatically as a local service on `http://localhost:11434`.
+
+2. **Pull a model:**
+
+   ```bash
+   ollama pull llama3.2       # ~2 GB — fast, good quality
+   ollama pull mistral        # ~4 GB — strong reasoning
+   ollama pull qwen2.5:7b     # ~5 GB — strong analytical reasoning (recommended)
+   ```
+
+3. **Add an Ollama block to `ai-reporter.properties`:**
+
+   ```properties
+   ai.reporter.ollama.api.key=ollama
+   ai.reporter.ollama.model=llama3.2
+   ai.reporter.ollama.base.url=http://localhost:11434/v1
+   ai.reporter.ollama.timeout.seconds=120
+   ai.reporter.ollama.max.tokens=4096
+   ai.reporter.ollama.temperature=0.3
+   ```
+
+   > **Note:** `api.key` must be non-blank — use any dummy value such as `ollama`.
+
+4. Select **ollama** from the provider dropdown and click **Generate AI Report**.
+
+### Recommendations
+
+| Concern                | Guidance                                                                          |
+|------------------------|-----------------------------------------------------------------------------------|
+| **Model quality**      | `qwen2.5:7b` or `mistral` produce the best performance analysis output            |
+| **Speed (CPU only)**   | Set `timeout.seconds=180` or higher; generation can take 1–3 minutes on CPU       |
+| **Speed (GPU)**        | Generation is near-instant; default `timeout.seconds=120` is sufficient           |
+| **Memory**             | Ensure at least 8 GB RAM free before pulling a 7B model                           |
+| **CLI usage**          | `--provider ollama` works identically to any other provider                       |
 
 ---
 
@@ -334,7 +380,8 @@ car-cli-report.bat -i results.jtl --provider groq --config ai-reporter.propertie
 Required:
   -i, --input FILE            JTL file path
   --provider STRING           provider name, case-insensitive
-                              (groq, openai, claude, gemini, mistral, deepseek)
+                              (groq, openai, claude, gemini, mistral, deepseek,
+                               ollama, or any custom key in ai-reporter.properties)
   --config FILE               path to ai-reporter.properties
 
 Output:
@@ -364,13 +411,15 @@ Help:
 
 ### Exit Codes
 
-| Code | Meaning            |
-|------|--------------------|
-| `0`  | Success            |
-| `1`  | Invalid arguments  |
-| `2`  | JTL parse error    |
-| `3`  | AI provider error  |
-| `4`  | Report write error |
+| Code | Meaning                                          |
+|------|--------------------------------------------------|
+| `0`  | AI verdict **PASS** — pipeline continues         |
+| `1`  | AI verdict **FAIL** — pipeline gate fails        |
+| `2`  | AI verdict **UNDECISIVE** — pipeline continues   |
+| `3`  | Invalid arguments                                |
+| `4`  | JTL parse error                                  |
+| `5`  | AI provider error (key, ping, or API failure)    |
+| `6`  | Report write error                               |
 
 ### Example — CI/CD Pipeline
 
@@ -381,12 +430,28 @@ Help:
   --start-offset 10 --end-offset 300 --percentile 95 \
   --scenario-name "Nightly Load Test" --virtual-users 200 \
   --error-sla 5 --rt-sla 2000 --rt-metric percentile
+
+EXIT_CODE=$?
+if [ $EXIT_CODE -eq 1 ]; then
+  echo "Performance gate FAILED — AI verdict: FAIL"
+  exit 1
+elif [ $EXIT_CODE -eq 2 ]; then
+  echo "Performance gate UNDECISIVE — review report manually"
+fi
 ```
 
-On success, the absolute path of the generated report is printed to stdout.
+On success, two lines are printed to stdout:
 
-> **CI/CD:** The exit code can be used as a pipeline quality gate — a non-zero exit fails the
-> build. The report path printed to stdout can be captured and published as a build artifact.
+```
+/absolute/path/to/report.html
+VERDICT:PASS
+```
+
+The verdict line is always one of `VERDICT:PASS`, `VERDICT:FAIL`, or `VERDICT:UNDECISIVE`.
+
+> **CI/CD Pipeline Gate:** Use the exit code as a quality gate — exit code `1` (VERDICT:FAIL) fails
+> the build; exit codes `0` (PASS) and `2` (UNDECISIVE) continue. The report path on the first
+> stdout line can be captured and published as a build artifact.
 
 ---
 
@@ -415,9 +480,19 @@ Restart JMeter after copying the file.
 The plugin found no configured provider. Verify that `ai-reporter.properties` exists in
 `<JMETER_HOME>/bin/` and that at least one `api.key` value is set.
 
-**Charts in the HTML report are blank.**
-The report requires internet access to load the charting library. Open the file in Chrome
-or Firefox on a machine with internet access.
+**"No Data" dialog appears when clicking Generate AI Report.**
+No JTL file has been loaded yet. Click **Browse**, select a JTL file, and wait for the table
+to populate before generating the report.
+
+**The HTML report shows "Insufficient data for time-series charts" instead of charts.**
+The test run was too short, or `--start-offset` / `--end-offset` filters excluded most samples,
+leaving fewer than two 30-second time buckets. Try reducing `--start-offset`, or remove the
+offset flags entirely and re-run. For smoke tests under 60 seconds, charts will not render — all
+other report sections (AI analysis, transaction table, verdict) are unaffected.
+
+**Charts in the HTML report are blank (no data, no message).**
+The report requires internet access to load the Chart.js library from a CDN. Open the file in
+Chrome or Firefox on a machine with internet access.
 
 **The table shows no rows after loading a JTL file.**
 Check that Start Offset and End Offset are not together excluding all samples. If the fields
@@ -426,7 +501,25 @@ truncated during the test run.
 
 **The AI report times out.**
 Increase `timeout.seconds` for the provider in `ai-reporter.properties`. The default is
-60 seconds. For large JTL files, 120–180 seconds is recommended.
+60 seconds. For large JTL files, 120–180 seconds is recommended. For Ollama on CPU-only
+machines, 180–300 seconds may be required.
+
+**API key rejected — "HTTP 401" error.**
+The `api.key` value in `ai-reporter.properties` is incorrect or has been revoked. Verify the
+key on your provider's dashboard and update the properties file. The plugin re-reads the file
+on every **Generate AI Report** click — no restart needed.
+
+**Rate limit exceeded — "HTTP 429" error.**
+The provider's free tier limit has been reached. Wait a moment and try again, or switch to a
+different provider in the dropdown. Groq's free tier resets every minute; Gemini's resets daily.
+
+**Ollama: "Could not connect" error.**
+Ollama is not running. Start it with `ollama serve` (or it starts automatically on most
+installations when you run `ollama pull`). Verify it is reachable at `http://localhost:11434`.
+Also confirm the model you specified in `ai-reporter.properties` has been pulled:
+```bash
+ollama list
+```
 
 ---
 
