@@ -97,7 +97,9 @@ public final class AiProviderRegistry {
             "gemini", "AIza"
     );
 
-    // ── Ping cache: providerKey → true (only successful pings are cached) ──
+    // ── Ping cache: "providerKey:apiKey" → true (only successful pings are cached).
+    //    Composite key ensures a rotated API key always produces a cache miss,
+    //    preventing stale validation bypass after key changes. ──────────────────
     private static final ConcurrentHashMap<String, Boolean> PING_CACHE =
             new ConcurrentHashMap<>();
 
@@ -161,7 +163,7 @@ public final class AiProviderRegistry {
         if (formatError != null) return formatError;
 
         // 2 — ping (skip if cached)
-        if (Boolean.TRUE.equals(PING_CACHE.get(config.providerKey))) {
+        if (Boolean.TRUE.equals(PING_CACHE.get(cacheKey(config)))) {
             log.debug("validateAndPing: ping cache hit for provider={}", config.providerKey);
             return null;
         }
@@ -170,13 +172,16 @@ public final class AiProviderRegistry {
     }
 
     /**
-     * Clears the ping cache entry for the given provider key.
+     * Clears the ping cache entry for the given provider configuration.
      * Useful after the user edits the properties file.
      *
-     * @param providerKey the provider key to evict
+     * <p>The cache is keyed on {@code providerKey + ":" + apiKey} so this method
+     * requires the full config to locate the correct entry.</p>
+     *
+     * @param config the provider config whose cache entry should be evicted
      */
-    public static void evictPingCache(String providerKey) {
-        PING_CACHE.remove(providerKey);
+    public static void evictPingCache(AiProviderConfig config) {
+        PING_CACHE.remove(cacheKey(config));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -336,6 +341,25 @@ public final class AiProviderRegistry {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Cache key
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Builds the composite ping-cache key from provider key and API key value.
+     *
+     * <p>Keying on both fields ensures that when a user rotates their API key
+     * and {@code ai-reporter.properties} is reloaded, the old cache entry never
+     * matches the new {@link AiProviderConfig} — forcing a fresh live ping rather
+     * than silently reusing a stale success result.</p>
+     *
+     * @param config provider configuration
+     * @return composite cache key in the form {@code "providerKey:apiKey"}
+     */
+    private static String cacheKey(AiProviderConfig config) {
+        return config.providerKey + ":" + config.apiKey;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Live ping
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -364,24 +388,24 @@ public final class AiProviderRegistry {
             log.debug("executePing: provider={} status={}", config.providerKey, status);
 
             if (status >= 200 && status < 300) {
-                PING_CACHE.put(config.providerKey, Boolean.TRUE);
+                PING_CACHE.put(cacheKey(config), Boolean.TRUE);
                 return null;
             }
-            PING_CACHE.remove(config.providerKey);
-            return buildPingErrorMessage(config, status);
+            PING_CACHE.remove(cacheKey(config));
+            return buildPingErrorMessage(config, status, response.body());
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            PING_CACHE.remove(config.providerKey);
+            PING_CACHE.remove(cacheKey(config));
             return "Connection to " + config.displayName + " was interrupted. Please try again.";
         } catch (IOException e) {
-            PING_CACHE.remove(config.providerKey);
+            PING_CACHE.remove(cacheKey(config));
             log.warn("executePing: network error for provider={}. reason={}", config.providerKey, e.getMessage());
             return "Could not connect to " + config.displayName + ".\n\n"
                     + "Please check your network connection and that the base URL is correct:\n"
                     + "  " + config.baseUrl;
         } catch (RuntimeException e) {
-            PING_CACHE.remove(config.providerKey);
+            PING_CACHE.remove(cacheKey(config));
             log.error("executePing: unexpected runtime error for provider={}. reason={}", config.providerKey, e.getMessage(), e);
             throw e;
         }
@@ -393,7 +417,7 @@ public final class AiProviderRegistry {
                 + "\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}";
     }
 
-    private static String buildPingErrorMessage(AiProviderConfig config, int status) {
+    private static String buildPingErrorMessage(AiProviderConfig config, int status, String responseBody) {
         if (status == 401) {
             return "The " + config.displayName + " API key was rejected (HTTP 401).\n\n"
                     + "The key may have expired or been revoked. Please update:\n"
@@ -405,8 +429,35 @@ public final class AiProviderRegistry {
                     + "Your account may lack permissions or have exceeded its quota.\n"
                     + "Please check your account at the provider's dashboard.";
         }
+        if (status == 404) {
+            return "Endpoint not found for " + config.displayName + " (HTTP 404).\n\n"
+                    + "The base URL may be misconfigured. Please verify:\n"
+                    + "  ai.reporter." + config.providerKey + ".base.url\n"
+                    + "in ai-reporter.properties.\n"
+                    + "Current URL: " + config.chatCompletionsUrl();
+        }
+        if (status == 429) {
+            return "Rate limit exceeded for " + config.displayName + " (HTTP 429).\n\n"
+                    + "Too many requests have been sent to the provider.\n"
+                    + "Please wait a moment and try again.";
+        }
+        if (status == 500) {
+            return "Internal server error from " + config.displayName + " (HTTP 500).\n\n"
+                    + "The provider encountered an unexpected error.\n"
+                    + "Please try again or check the provider's status page.";
+        }
+        if (status == 503) {
+            return "Service temporarily unavailable for " + config.displayName + " (HTTP 503).\n\n"
+                    + "The provider is currently unavailable.\n"
+                    + "Please try again later or check the provider's status page.";
+        }
+        if (status == 408 || status == 504) {
+            return "Request timed out for " + config.displayName + " (HTTP " + status + ").\n\n"
+                    + "The provider did not respond in time.\n"
+                    + "Please check your network connection and try again.";
+        }
         return "Unexpected response from " + config.displayName + " (HTTP " + status + ").\n\n"
-                + "Provider: " + config.providerKey + "\n"
-                + "URL: " + config.chatCompletionsUrl();
+                + "Provider: " + config.providerKey + "\n\n"
+                + "Response body:\n" + responseBody;
     }
 }

@@ -22,6 +22,15 @@ final class CliReportPipeline {
 
     private static final String TOTAL_LABEL = "TOTAL";
 
+    /**
+     * Immutable result returned by {@link #execute()}.
+     * Carries the output HTML path and the extracted AI verdict.
+     *
+     * @param outputPath absolute path of the generated HTML report
+     * @param verdict    extracted verdict: "PASS", "FAIL", or "UNDECISIVE"
+     */
+    record PipelineResult(String outputPath, String verdict) {}
+
     private final CliArgs args;
     private final PrintStream progress;
 
@@ -37,10 +46,11 @@ final class CliReportPipeline {
     /**
      * Executes the full pipeline.
      *
-     * @return the absolute path of the generated HTML report
+     * @return {@link PipelineResult} containing the absolute path of the generated
+     *         HTML report and the extracted AI verdict ("PASS", "FAIL", or "UNDECISIVE")
      * @throws IOException on parse, AI, or write failure
      */
-    String execute() throws IOException {
+    PipelineResult execute() throws IOException {
 
         // Step 1 — Parse JTL
         progress("Parsing JTL file: " + args.inputFile());
@@ -62,12 +72,12 @@ final class CliReportPipeline {
                 result.formattedDuration(),
                 args.virtualUsers() > 0 ? String.valueOf(args.virtualUsers()) : "");
 
-        // Step 3 — Resolve AI provider
+        // Step 4 — Resolve AI provider
         progress("Loading provider configuration from: " + args.configFile());
         AiProviderConfig provider = resolveProvider();
         progress("Provider: %s (model: %s)", provider.displayName, provider.model);
 
-        // Step 4 — Validate and ping
+        // Step 5 — Validate and ping
         progress("Validating API key and pinging %s...", provider.displayName);
         String pingError = AiProviderRegistry.validateAndPing(provider);
         if (pingError != null) {
@@ -76,7 +86,7 @@ final class CliReportPipeline {
         }
         progress("Ping successful.");
 
-        // Step 5 — Load prompt and build content
+        // Step 6 — Load prompt and build content
         progress("Building analysis prompt...");
         String systemPrompt = PromptLoader.load();
         if (systemPrompt == null) {
@@ -84,20 +94,25 @@ final class CliReportPipeline {
         }
         PromptContent prompt = buildPromptContent(result, systemPrompt, timeCtx);
 
-        // Step 6 — Call AI
+        // Step 7 — Call AI
         progress("Calling %s (this may take 30-60 seconds)...", provider.displayName);
         AiReportService service = new AiReportService(provider);
         String markdown = service.generateReport(prompt);
         progress("AI response received (%d characters).", markdown.length());
 
-        // Step 7 — Render HTML
+        // Step 8 — Extract verdict and strip machine verdict line before rendering
+        String verdict          = extractVerdict(markdown);
+        String strippedMarkdown = stripVerdictLine(markdown);
+        progress("Verdict: %s", verdict);
+
+        // Step 9 — Render HTML
         progress("Rendering HTML report...");
-        HtmlReportRenderer.RenderConfig config = buildRenderConfig(result, timeCtx);
+        HtmlReportRenderer.RenderConfig config = buildRenderConfig(result, timeCtx, provider);
         String outputPath = new HtmlReportRenderer().renderToFile(
-                markdown, args.outputFile(), config, tableRows, result.timeBuckets);
+                strippedMarkdown, args.outputFile(), config, tableRows, result.timeBuckets);
         progress("Report saved to: " + outputPath);
 
-        return outputPath;
+        return new PipelineResult(outputPath, verdict);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -196,7 +211,8 @@ final class CliReportPipeline {
     // ─────────────────────────────────────────────────────────────
 
     private HtmlReportRenderer.RenderConfig buildRenderConfig(JTLParser.ParseResult result,
-                                                              TimeContext timeCtx) {
+                                                              TimeContext timeCtx,
+                                                              AiProviderConfig provider) {
         return new HtmlReportRenderer.RenderConfig(
                 timeCtx.users(),
                 args.scenarioName(),
@@ -205,7 +221,58 @@ final class CliReportPipeline {
                 timeCtx.startTime(),
                 timeCtx.endTime(),
                 timeCtx.duration(),
-                args.percentile());
+                args.percentile(),
+                provider.displayName);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Verdict extraction
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Scans the last non-blank line of the AI markdown for a machine verdict token.
+     *
+     * @param markdown raw AI-generated markdown
+     * @return "PASS", "FAIL", or "UNDECISIVE" if the line is absent or unrecognised
+     */
+    private static String extractVerdict(String markdown) {
+        if (markdown == null || markdown.isBlank()) return "UNDECISIVE";
+        String[] lines = markdown.split("\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (!line.isEmpty()) {
+                if (line.equals("VERDICT:PASS")) return "PASS";
+                if (line.equals("VERDICT:FAIL")) return "FAIL";
+                return "UNDECISIVE";
+            }
+        }
+        return "UNDECISIVE";
+    }
+
+    /**
+     * Returns the markdown with the machine verdict line removed.
+     * If no verdict line is found, returns the original markdown unchanged.
+     *
+     * @param markdown raw AI-generated markdown
+     * @return markdown with the VERDICT line stripped, trailing whitespace trimmed
+     */
+    private static String stripVerdictLine(String markdown) {
+        if (markdown == null || markdown.isBlank()) return markdown;
+        String[] lines = markdown.split("\n", -1);
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (!line.isEmpty()) {
+                if (line.startsWith("VERDICT:")) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int j = 0; j < i; j++) {
+                        sb.append(lines[j]).append("\n");
+                    }
+                    return sb.toString().stripTrailing();
+                }
+                break;
+            }
+        }
+        return markdown;
     }
 
     // ─────────────────────────────────────────────────────────────

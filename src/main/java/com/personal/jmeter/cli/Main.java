@@ -17,31 +17,37 @@ import com.personal.jmeter.parser.JtlParseException;
  *
  * <h3>Exit codes</h3>
  * <ul>
- *   <li>{@code 0} — success</li>
- *   <li>{@code 1} — invalid arguments</li>
- *   <li>{@code 2} — JTL parse error</li>
- *   <li>{@code 3} — AI provider error (key invalid, ping failed, API error)</li>
- *   <li>{@code 4} — report write error</li>
+ *   <li>{@code 0} — AI verdict PASS — pipeline continues</li>
+ *   <li>{@code 1} — AI verdict FAIL — pipeline gate fails</li>
+ *   <li>{@code 2} — AI did not generate a verdict line — pipeline continues</li>
+ *   <li>{@code 3} — invalid command-line arguments</li>
+ *   <li>{@code 4} — JTL parse error</li>
+ *   <li>{@code 5} — AI provider error (key invalid, ping failed, API error)</li>
+ *   <li>{@code 6} — report file write failure</li>
  * </ul>
  *
  * <h3>Usage</h3>
  * <pre>
  * java -cp Configurable_Aggregate_Report.jar com.personal.jmeter.cli.Main \
- *   -i results.jtl --ai --provider groq --config ai-reporter.properties
+ *   -i results.jtl --provider groq --config ai-reporter.properties
  * </pre>
  */
 public final class Main {
 
-    /** Exit code: success. */
-    static final int EXIT_OK             = 0;
+    /** Exit code: AI verdict PASS — pipeline continues. */
+    static final int EXIT_VERDICT_PASS        = 0;
+    /** Exit code: AI verdict FAIL — pipeline gate fails. */
+    static final int EXIT_VERDICT_FAIL        = 1;
+    /** Exit code: AI did not generate a verdict line — pipeline continues. */
+    static final int EXIT_VERDICT_UNDECISIVE  = 2;
     /** Exit code: invalid command-line arguments. */
-    static final int EXIT_BAD_ARGS       = 1;
+    static final int EXIT_BAD_ARGS            = 3;
     /** Exit code: JTL parse failure. */
-    static final int EXIT_PARSE_ERROR    = 2;
+    static final int EXIT_PARSE_ERROR         = 4;
     /** Exit code: AI provider error (key, ping, or API). */
-    static final int EXIT_AI_ERROR       = 3;
+    static final int EXIT_AI_ERROR            = 5;
     /** Exit code: report file write failure. */
-    static final int EXIT_WRITE_ERROR    = 4;
+    static final int EXIT_WRITE_ERROR         = 6;
 
     private Main() {}
 
@@ -58,7 +64,7 @@ public final class Main {
 
         if (cli.helpRequested()) {
             System.out.println(CliArgs.helpText());
-            System.exit(EXIT_OK);
+            System.exit(EXIT_VERDICT_PASS);
             return;
         }
 
@@ -72,9 +78,14 @@ public final class Main {
         }
 
         try {
-            String outputPath = new CliReportPipeline(cli).execute();
-            System.out.println(outputPath);
-            System.exit(EXIT_OK);
+            CliReportPipeline.PipelineResult result = new CliReportPipeline(cli).execute();
+            System.out.println(result.outputPath());
+            System.out.println("VERDICT:" + result.verdict());
+            switch (result.verdict()) {
+                case "PASS" -> System.exit(EXIT_VERDICT_PASS);
+                case "FAIL" -> System.exit(EXIT_VERDICT_FAIL);
+                default     -> System.exit(EXIT_VERDICT_UNDECISIVE);
+            }
         } catch (JtlParseException e) {
             System.err.println("Error: " + e.getMessage());
             System.exit(EXIT_PARSE_ERROR);

@@ -445,5 +445,13 @@ Every numeric claim must be drawn from the input data.
   Never use words like "marginal", "borderline", "acceptable", or
   "slightly" — the verdict is binary.
 
+  MACHINE VERDICT LINE — append as the absolute last line of this section,
+  on its own line, no surrounding text, no punctuation, no Markdown:
+    VERDICT:PASS
+  or
+    VERDICT:FAIL
+  This line must always be present. It is the only line in this report
+  that must match exactly — character for character.
+
 
 Format in Markdown. Use tables only where explicitly specified above.
