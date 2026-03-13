@@ -70,23 +70,42 @@ public class JTLParser {
         Set<String> subResultLabels  = new HashSet<>();
         long        minTimestamp     = Long.MAX_VALUE;
 
+        // ── Header parse (M1) — done once here; Pass 2 reuses colMap ───────────
+        // colMap and the four index variables are declared in the outer scope so
+        // Pass 2 can reference them without rebuilding from the header line again.
+        final Map<String, Integer> colMap;
+        final Integer tsIdx, labelIdx, elapsedIdx, dataTypeIdx;
+
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(new FileInputStream(filePath), StandardCharsets.UTF_8))) {
+                new InputStreamReader(new FileInputStream(filePath), StandardCharsets.UTF_8), 65_536)) {
             String headerLine = reader.readLine();
             if (headerLine == null) throw new JtlParseException("JTL file is empty: " + filePath);
 
-            Map<String, Integer> colMap     = JtlParserCore.buildColumnMap(headerLine.split(","));
-            Integer tsIdx       = colMap.get("timeStamp");
-            Integer labelIdx    = colMap.get("label");
-            Integer elapsedIdx  = colMap.get("elapsed");
-            Integer dataTypeIdx = colMap.get("dataType");
+            colMap      = JtlParserCore.buildColumnMap(headerLine.split(","));
+            tsIdx       = colMap.get("timeStamp");
+            labelIdx    = colMap.get("label");
+            elapsedIdx  = colMap.get("elapsed");
+            dataTypeIdx = colMap.get("dataType");
+
+            // ── Pass 1 max-index (H2) ─────────────────────────────────────────
+            // Determines how far extractPass1Fields needs to scan each line.
+            // Only the four fields above are needed in Pass 1; all columns beyond
+            // the highest of their indices are ignored, saving ~13 field allocations
+            // per row on a standard 17-column JTL.
+            int p1Max = 0;
+            if (tsIdx       != null) p1Max = Math.max(p1Max, tsIdx);
+            if (labelIdx    != null) p1Max = Math.max(p1Max, labelIdx);
+            if (elapsedIdx  != null) p1Max = Math.max(p1Max, elapsedIdx);
+            if (dataTypeIdx != null) p1Max = Math.max(p1Max, dataTypeIdx);
+            final int pass1MaxIdx = p1Max;
 
             // Previous-row fields for consecutive-row detection
             String prevTs = null, prevElapsed = null, prevDataType = null;
 
             String line;
             while ((line = reader.readLine()) != null) {
-                String[] values = JtlParserCore.splitCsvLine(line);
+                // H2: extract only the 4 needed columns; stop scanning at pass1MaxIdx
+                String[] values = JtlParserCore.extractPass1Fields(line, pass1MaxIdx);
 
                 String label    = (labelIdx    != null && labelIdx    < values.length) ? values[labelIdx].trim()    : "";
                 String ts       = (tsIdx       != null && tsIdx       < values.length) ? values[tsIdx].trim()       : "";
@@ -170,25 +189,34 @@ public class JTLParser {
         int  latencySampleCount = 0;
 
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(new FileInputStream(filePath), StandardCharsets.UTF_8))) {
-            String headerLine = reader.readLine();
-            if (headerLine == null) throw new JtlParseException("JTL file is empty: " + filePath);
+                new InputStreamReader(new FileInputStream(filePath), StandardCharsets.UTF_8), 65_536)) {
+            reader.readLine(); // M1: skip header — colMap already built in Pass 1
 
-            Map<String, Integer> colMap = JtlParserCore.buildColumnMap(headerLine.split(","));
+            // M2: pre-compute filter flags once — invariant for the entire parse.
+            // Avoids recomputing isBlank() and int comparisons on every row in the
+            // hot loop, which is significant for JTL files with 200K+ samples.
+            final boolean hasInclude = !options.includeLabels.isBlank();
+            final boolean hasExclude = !options.excludeLabels.isBlank();
+            final boolean hasOffset  = options.startOffset > 0 || options.endOffset > 0;
+
             String line;
 
             while ((line = reader.readLine()) != null) {
-                SampleResult sr = JtlParserCore.parseLine(line, colMap);
+                // H1: tokenise once — tokens shared by parseLine and parseElapsed,
+                // eliminating the second splitCsvLine call that parseElapsed previously
+                // made on the same line.
+                String[] tokens = JtlParserCore.splitCsvLine(line);
+                SampleResult sr = JtlParserCore.parseLineTokens(tokens, colMap);
                 if (sr == null
                         || subResultLabels.contains(sr.getSampleLabel())
-                        || !JtlParserCore.shouldInclude(sr, options)) {
+                        || !JtlParserCore.shouldInclude(sr, options, hasInclude, hasExclude, hasOffset)) {
                     continue;
                 }
 
                 // Compute elapsed; optionally subtract IdleTime (timers / pre-post
                 // processors) before calling setStampAndTime — which must be called
                 // exactly once on a SampleResult.
-                long rawElapsed = JtlParserCore.parseElapsed(line, colMap);
+                long rawElapsed = JtlParserCore.parseElapsedTokens(tokens, colMap);
                 long adjusted   = (!options.includeTimerDuration && sr.getIdleTime() > 0)
                         ? Math.max(0L, rawElapsed - sr.getIdleTime())
                         : rawElapsed;

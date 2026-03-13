@@ -29,7 +29,7 @@ public class PromptBuilder {
 
     private static final Logger log = LoggerFactory.getLogger(PromptBuilder.class);
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder().create(); // compact JSON — reduces AI token payload
     private static final String TOTAL_LABEL = "TOTAL";
     private static final double MEDIAN = 0.50;
     private static final int SLOWEST_TOP_N = 5;

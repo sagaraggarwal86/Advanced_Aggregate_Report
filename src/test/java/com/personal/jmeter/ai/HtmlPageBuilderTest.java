@@ -125,11 +125,49 @@ class HtmlPageBuilderTest {
             assertTrue(result.contains("<table>"),
                     "Separator with colons should still be recognised as a valid separator");
         }
-    }
 
-    // ─────────────────────────────────────────────────────────────
-    // Cell escaping
-    // ─────────────────────────────────────────────────────────────
+        @Test
+        @DisplayName("table without trailing pipe on any row is recognised (Gemini-style)")
+        void noTrailingPipeTable() {
+            String input = "| Priority | Hypothesis | Action\n|---|---|---\n| High | DB slow | Add index";
+            String result = HtmlPageBuilder.convertPipeTablesToHtml(input);
+            assertTrue(result.contains("<table>"),            "Should detect table without trailing pipe");
+            assertTrue(result.contains("<th>Priority</th>"),  "Header cell Priority");
+            assertTrue(result.contains("<th>Action</th>"),    "Header cell Action");
+            assertTrue(result.contains("<td>High</td>"),      "Data cell High");
+            assertTrue(result.contains("<td>Add index</td>"), "Data cell Add index");
+        }
+
+        @Test
+        @DisplayName("table without leading pipe on any row is recognised")
+        void noLeadingPipeTable() {
+            String input = "Priority | Hypothesis | Action |\n---|---|---|\n High | DB slow | Add index |";
+            String result = HtmlPageBuilder.convertPipeTablesToHtml(input);
+            assertTrue(result.contains("<table>"),            "Should detect table without leading pipe");
+            assertTrue(result.contains("<th>Priority</th>"),  "Header cell Priority");
+            assertTrue(result.contains("<th>Action</th>"),    "Header cell Action");
+        }
+
+        @Test
+        @DisplayName("table with no edge pipes (interior pipe only) is recognised")
+        void noEdgePipeTable() {
+            String input = "Priority | Hypothesis | Action\n---|---|---\n High | DB slow | Add index";
+            String result = HtmlPageBuilder.convertPipeTablesToHtml(input);
+            assertTrue(result.contains("<table>"),            "Should detect interior-pipe-only table");
+            assertTrue(result.contains("<th>Priority</th>"),  "Header cell Priority");
+            assertTrue(result.contains("<td>High</td>"),      "Data cell High");
+        }
+
+        @Test
+        @DisplayName("leading-and-trailing pipe table continues to work (Groq/OpenAI-style)")
+        void leadingAndTrailingPipeTable() {
+            String input = "| Priority | Action |\n|---|---|\n| High | Fix it |";
+            String result = HtmlPageBuilder.convertPipeTablesToHtml(input);
+            assertTrue(result.contains("<table>"),            "Should detect full-pipe table");
+            assertTrue(result.contains("<th>Priority</th>"),  "Header cell Priority");
+            assertTrue(result.contains("<td>Fix it</td>"),    "Data cell Fix it");
+        }
+    }
 
     @Nested
     @DisplayName("Cell content escaping")

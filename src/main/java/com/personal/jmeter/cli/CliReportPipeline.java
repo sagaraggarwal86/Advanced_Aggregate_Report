@@ -101,8 +101,8 @@ final class CliReportPipeline {
         progress("AI response received (%d characters).", markdown.length());
 
         // Step 8 — Extract verdict and strip machine verdict line before rendering
-        String verdict          = extractVerdict(markdown);
-        String strippedMarkdown = stripVerdictLine(markdown);
+        String verdict          = MarkdownUtils.extractVerdict(markdown);
+        String strippedMarkdown = MarkdownUtils.stripVerdictLine(markdown);
         progress("Verdict: %s", verdict);
 
         // Step 9 — Render HTML
@@ -223,56 +223,6 @@ final class CliReportPipeline {
                 timeCtx.duration(),
                 args.percentile(),
                 provider.displayName);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Verdict extraction
-    // ─────────────────────────────────────────────────────────────
-
-    /**
-     * Scans the last non-blank line of the AI markdown for a machine verdict token.
-     *
-     * @param markdown raw AI-generated markdown
-     * @return "PASS", "FAIL", or "UNDECISIVE" if the line is absent or unrecognised
-     */
-    private static String extractVerdict(String markdown) {
-        if (markdown == null || markdown.isBlank()) return "UNDECISIVE";
-        String[] lines = markdown.split("\n");
-        for (int i = lines.length - 1; i >= 0; i--) {
-            String line = lines[i].trim();
-            if (!line.isEmpty()) {
-                if (line.equals("VERDICT:PASS")) return "PASS";
-                if (line.equals("VERDICT:FAIL")) return "FAIL";
-                return "UNDECISIVE";
-            }
-        }
-        return "UNDECISIVE";
-    }
-
-    /**
-     * Returns the markdown with the machine verdict line removed.
-     * If no verdict line is found, returns the original markdown unchanged.
-     *
-     * @param markdown raw AI-generated markdown
-     * @return markdown with the VERDICT line stripped, trailing whitespace trimmed
-     */
-    private static String stripVerdictLine(String markdown) {
-        if (markdown == null || markdown.isBlank()) return markdown;
-        String[] lines = markdown.split("\n", -1);
-        for (int i = lines.length - 1; i >= 0; i--) {
-            String line = lines[i].trim();
-            if (!line.isEmpty()) {
-                if (line.startsWith("VERDICT:")) {
-                    StringBuilder sb = new StringBuilder();
-                    for (int j = 0; j < i; j++) {
-                        sb.append(lines[j]).append("\n");
-                    }
-                    return sb.toString().stripTrailing();
-                }
-                break;
-            }
-        }
-        return markdown;
     }
 
     // ─────────────────────────────────────────────────────────────

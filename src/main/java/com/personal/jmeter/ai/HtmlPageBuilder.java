@@ -270,17 +270,45 @@ final class HtmlPageBuilder {
         return sb.append("</tbody>\n</table>\n").toString();
     }
 
+    /**
+     * Returns {@code true} when {@code line} looks like a GFM table data or header row.
+     *
+     * <p>Detection is format-agnostic: the only requirement is that the trimmed
+     * line contains at least one {@code |} character. This covers all four pipe
+     * placement variants emitted by different AI providers:</p>
+     * <ul>
+     *   <li>{@code | Col1 | Col2 |}  — leading + trailing pipe</li>
+     *   <li>{@code | Col1 | Col2}    — leading pipe, no trailing pipe</li>
+     *   <li>{@code Col1 | Col2 |}    — no leading pipe, trailing pipe</li>
+     *   <li>{@code Col1 | Col2}      — no edge pipes (interior pipe only)</li>
+     * </ul>
+     */
     private static boolean isPipeRow(String line) {
-        String t = line.trim();
-        return t.startsWith("|") && t.endsWith("|") && t.length() > 2;
+        return line.contains("|");
     }
 
+    /**
+     * Returns {@code true} when {@code line} is a GFM separator row
+     * (the {@code |---|---|} line between header and body).
+     *
+     * <p>Format-agnostic: strips all {@code |}, {@code -}, {@code :}, and
+     * whitespace characters and requires the result to be empty, plus at least
+     * one {@code -} to rule out blank lines or lines containing only pipes.</p>
+     */
     private static boolean isSeparatorRow(String line) {
         String t = line.trim();
-        if (!t.startsWith("|") || !t.endsWith("|")) return false;
-        return t.replace("|", "").replaceAll("[\\-:\\s]", "").isEmpty();
+        if (!t.contains("|")) return false;
+        if (!t.contains("-")) return false;
+        return t.replaceAll("[|\\-:\\s]", "").isEmpty();
     }
 
+    /**
+     * Splits a GFM pipe-table row into trimmed cell tokens.
+     *
+     * <p>Strips leading and trailing {@code |} when present (conditionally),
+     * then splits on {@code |}. Works correctly for all four pipe-placement
+     * variants since the strip is conditional in both cases.</p>
+     */
     private static String[] splitPipeRow(String line) {
         String t = line.trim();
         if (t.startsWith("|")) t = t.substring(1);

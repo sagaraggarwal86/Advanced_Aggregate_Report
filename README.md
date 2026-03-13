@@ -1,4 +1,4 @@
-al# Configurable Aggregate Report — JMeter Plugin
+# Configurable Aggregate Report — JMeter Plugin
 
 A file-based Apache JMeter listener plugin for post-test JTL analysis. Load a JTL file and get
 a filterable aggregate table, CSV export, and an AI-generated HTML performance report — with zero
@@ -282,6 +282,26 @@ OpenAI (paid), Claude (paid), Ollama (local / free) — or any OpenAI-compatible
 | Transaction Metrics Table | Full per-transaction breakdown                                 |
 | Performance Charts        | Response time, error rate, throughput, and bandwidth over time |
 
+### Truncation Detection
+
+If the AI provider returns a response that was cut short by the token limit, a visible warning
+blockquote is automatically appended to the generated HTML report:
+
+> **⚠ Report truncated** — The Gemini (Free) response was cut off because it reached the
+> `max_tokens` limit. One or more sections (e.g. Recommendations, Verdict) may be missing.
+> Increase `max_tokens` in `ai-reporter.properties` for the `gemini` provider and regenerate.
+
+The plugin detects truncation via two signals — the standard `finish_reason: "length"` field,
+and a fallback check of `usage.completion_tokens >= max_tokens` for providers (such as Gemini)
+that return `finish_reason: "stop"` even when the token limit was hit.
+
+The default `max_tokens` for all providers is **8192**. If you still see truncated reports,
+increase the value for the affected provider in `ai-reporter.properties`:
+
+```properties
+ai.reporter.gemini.max.tokens=16000
+```
+
 ### API Key Setup
 
 Copy [docs/ai-reporter.properties](docs/ai-reporter.properties) to `<JMETER_HOME>/bin/`
@@ -325,7 +345,7 @@ cloud AI providers. No API key, no internet connection required after model down
    ai.reporter.ollama.model=llama3.2
    ai.reporter.ollama.base.url=http://localhost:11434/v1
    ai.reporter.ollama.timeout.seconds=120
-   ai.reporter.ollama.max.tokens=4096
+   ai.reporter.ollama.max.tokens=8192
    ai.reporter.ollama.temperature=0.3
    ```
 
@@ -471,6 +491,16 @@ mvn test-compile exec:java
 ---
 
 ## Troubleshooting
+
+**The AI report is missing sections — Recommendations or Verdict are absent, or a truncation warning appears.**
+The AI provider reached the `max_tokens` limit before finishing the report. If the response was
+cut short, a blockquote warning is shown at the end of the report with the provider name and the
+config key to increase. Raise the limit in `ai-reporter.properties`:
+```properties
+ai.reporter.gemini.max.tokens=16000
+```
+The default for all providers is `8192`. Gemini models tend to be more verbose — `12000–16000`
+is recommended if truncation occurs. After saving the file, regenerate the report (no restart needed).
 
 **The plugin does not appear in JMeter's Add → Listener menu.**
 Verify the JAR is in `<JMETER_HOME>/lib/ext/` and not in `lib/` or any subdirectory.

@@ -113,8 +113,14 @@ public class AiReportCoordinator {
             setProgress(progressLabel, "Calling " + ctx.providerDisplayName + " (this may take ~30 seconds)...");
             String markdown = aiService.generateReport(prompt);
 
+            // Strip the machine verdict token (e.g. "VERDICT:FAIL") before rendering.
+            // This token is a CLI exit-code signal and must never appear as visible
+            // text in the HTML report. In CLI mode CliReportPipeline does this via
+            // MarkdownUtils; here we mirror the same step for the UI path.
+            String strippedMarkdown = MarkdownUtils.stripVerdictLine(markdown);
+
             setProgress(progressLabel, "Rendering HTML report...");
-            String htmlPath = renderReport(ctx, markdown);
+            String htmlPath = renderReport(ctx, strippedMarkdown);
 
             SwingUtilities.invokeLater(() -> onSuccess(htmlPath, progressDialog, triggerBtn));
 

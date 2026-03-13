@@ -156,16 +156,29 @@ public class AiReportService {
         return body.toString();
     }
 
-    private String extractAndValidateContent(String responseBody) throws AiServiceException {
+    /**
+     * Markdown notice appended to truncated AI responses so the truncation is
+     * visible in the rendered HTML report — not just in server logs.
+     *
+     * <p>The notice intentionally names the provider and the config key so the
+     * user knows exactly where to raise the limit.</p>
+     */
+    private static final String TRUNCATION_NOTICE_TEMPLATE =
+            "\n\n> **⚠ Report truncated** — The %s response was cut off because it reached the "
+                    + "`max_tokens` limit configured for this provider. One or more sections (e.g. "
+                    + "Recommendations, Verdict) may be missing. Increase `max_tokens` in "
+                    + "`ai-reporter.properties` for the `%s` provider and regenerate the report.";
+
+    // Package-private to allow direct unit testing without HTTP mocking infrastructure.
+    String extractAndValidateContent(String responseBody) throws AiServiceException {
+        final JsonObject root;
+        final JsonObject choice;
         final String aiText;
         try {
-            aiText = JsonParser.parseString(responseBody)
-                    .getAsJsonObject()
-                    .getAsJsonArray("choices")
-                    .get(0).getAsJsonObject()
-                    .getAsJsonObject("message")
-                    .get("content").getAsString();
-        } catch (JsonParseException | IllegalStateException | IndexOutOfBoundsException e) {
+            root   = JsonParser.parseString(responseBody).getAsJsonObject();
+            choice = root.getAsJsonArray("choices").get(0).getAsJsonObject();
+            aiText = choice.getAsJsonObject("message").get("content").getAsString();
+        } catch (JsonParseException | IllegalStateException | IndexOutOfBoundsException | NullPointerException e) {
             log.error("extractAndValidateContent: failed to parse response. provider={} reason={}",
                     config.providerKey, e.getMessage(), e);
             throw new AiServiceException("Failed to parse " + config.displayName
@@ -177,6 +190,44 @@ public class AiReportService {
                     config.displayName + " API returned an empty response. "
                             + "Check model ID, API key, and response parsing format. "
                             + "No file was written.");
+        }
+
+        // ── Truncation detection ──────────────────────────────────────────────
+        // Primary signal: finish_reason="length" — the OpenAI-standard way a
+        // model signals it stopped because it hit max_tokens.
+        boolean truncated = false;
+        if (choice.has("finish_reason")) {
+            truncated = "length".equals(choice.get("finish_reason").getAsString());
+        }
+
+        // Fallback signal: usage.completion_tokens >= config.maxTokens.
+        // Some providers (notably Gemini via its OpenAI-compatible layer) return
+        // finish_reason="stop" even when the model was cut short by the token
+        // limit, so the primary signal alone is not sufficient for all providers.
+        if (!truncated && root.has("usage")) {
+            try {
+                int completionTokens = root.getAsJsonObject("usage")
+                        .get("completion_tokens").getAsInt();
+                if (completionTokens >= config.maxTokens) {
+                    truncated = true;
+                    log.debug("extractAndValidateContent: usage-based truncation detected. "
+                                    + "provider={} completion_tokens={} max_tokens={}",
+                            config.providerKey, completionTokens, config.maxTokens);
+                }
+            } catch (IllegalStateException | NullPointerException e) {
+                // usage object present but malformed — ignore, do not truncate-flag
+                log.debug("extractAndValidateContent: could not read usage.completion_tokens "
+                        + "for provider={} — {}", config.providerKey, e.getMessage());
+            }
+        }
+
+        if (truncated) {
+            log.warn("extractAndValidateContent: response truncated at token limit. "
+                            + "provider={} model={} max_tokens={} — "
+                            + "increase max_tokens in ai-reporter.properties to avoid missing sections.",
+                    config.providerKey, config.model, config.maxTokens);
+            return aiText + String.format(TRUNCATION_NOTICE_TEMPLATE,
+                    config.displayName, config.providerKey);
         }
 
         return aiText;
