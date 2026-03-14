@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for {@link CliArgs}.
  *
- * <p>No file system side effects except where a real file path is required by
+ * <p>No file system side effects  except where a real file path is required by
  * validation (uses {@link TempDir} for those cases). No network, no Swing.</p>
  */
 @DisplayName("CliArgs")
